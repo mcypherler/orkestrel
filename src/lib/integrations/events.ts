@@ -22,8 +22,11 @@ export async function fetchEvents(
   let tmError: string | null = null;
   if (mode === "ticketmaster" || mode === "hybrid") {
     try {
-      const tmEvents = await fetchTicketmasterEvents(cities, 30, artistNames);
-      events.push(...tmEvents);
+      const result = await fetchTicketmasterEvents(cities, 30, artistNames);
+      events.push(...result.events);
+      if (result.errors.length > 0) {
+        tmError = result.errors.join("; ");
+      }
     } catch (err) {
       tmError = String(err);
       console.error("Ticketmaster fetch failed:", err);
