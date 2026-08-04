@@ -14,7 +14,7 @@ export async function GET() {
     .select(
       `
       *,
-      events (*),
+      events (*, event_offers (*)),
       message_deliveries (*)
     `
     )

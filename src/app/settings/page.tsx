@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Skeleton } from "@/components/loading";
 
 interface User {
   userId: string;
@@ -81,7 +82,7 @@ export default function SettingsPage() {
   }
 
   if (loading) {
-    return <div className="py-12 text-center text-muted">Loading...</div>;
+    return (<div className="space-y-6"><Skeleton className="h-7 w-28" /><div className="rounded-lg border border-border bg-surface p-5 space-y-4"><Skeleton className="h-4 w-32" /><Skeleton className="h-9 w-full" /><Skeleton className="h-4 w-32" /><Skeleton className="h-9 w-full" /><Skeleton className="h-4 w-32" /><Skeleton className="h-9 w-24" /></div></div>);
   }
 
   return (
