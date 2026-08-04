@@ -14,6 +14,118 @@ export type MessageProvider = "console" | "twilio" | "meta";
 export type MessageStatus = "pending" | "sent" | "delivered" | "failed" | "read";
 export type ConsentType = "spotify" | "whatsapp";
 
+type UsersInsert = {
+  id?: string;
+  spotify_id?: string | null;
+  display_name: string;
+  email?: string | null;
+};
+
+type PreferencesInsert = {
+  id?: string;
+  user_id: string;
+  home_postcode?: string | null;
+  preferred_cities?: string[];
+  max_price_gbp?: number | null;
+  ticket_count?: number;
+  max_radius_miles?: number | null;
+  reject_restricted_view?: boolean;
+  allow_tributes?: boolean;
+  timezone?: string;
+};
+
+type SpotifyConnectionsInsert = {
+  id?: string;
+  user_id: string;
+  access_token_encrypted: string;
+  refresh_token_encrypted: string;
+  token_expires_at: string;
+  scopes?: string;
+};
+
+type ArtistsInsert = {
+  id?: string;
+  name: string;
+  spotify_id?: string | null;
+  image_url?: string | null;
+};
+
+type UserArtistsInsert = {
+  id?: string;
+  user_id: string;
+  artist_id: string;
+  source: ArtistSource;
+  relationship?: ArtistRelationship;
+  spotify_score?: number | null;
+};
+
+type EventsInsert = {
+  id?: string;
+  provider: string;
+  provider_event_id: string;
+  title: string;
+  event_type: EventType;
+  artist_name?: string | null;
+  inspired_artist?: string | null;
+  performer?: string | null;
+  venue_name?: string | null;
+  venue_postcode?: string | null;
+  venue_city?: string | null;
+  starts_at?: string | null;
+  timezone?: string;
+  official_url?: string | null;
+  image_url?: string | null;
+  is_mock?: boolean;
+  source_payload?: Record<string, unknown> | null;
+  observed_at?: string;
+};
+
+type EventOffersInsert = {
+  id?: string;
+  event_id: string;
+  price_amount?: number | null;
+  price_currency?: string;
+  price_type?: PriceType | null;
+  section?: string | null;
+  row_name?: string | null;
+  seat_quality?: SeatQuality;
+  is_adjacent?: boolean | null;
+  seller?: string | null;
+  observed_at?: string;
+};
+
+type AlertCandidatesInsert = {
+  id?: string;
+  user_id: string;
+  event_id: string;
+  alert_type?: AlertType;
+  score?: number;
+  reasons?: string[];
+  warnings?: string[];
+  status?: AlertStatus;
+};
+
+type MessageDeliveriesInsert = {
+  id?: string;
+  alert_candidate_id: string;
+  provider: MessageProvider;
+  provider_message_id?: string | null;
+  recipient?: string | null;
+  status?: MessageStatus;
+  preview_text?: string | null;
+  sent_at?: string | null;
+  error_message?: string | null;
+};
+
+type ConsentsInsert = {
+  id?: string;
+  user_id: string;
+  consent_type: ConsentType;
+  granted_at?: string;
+  revoked_at?: string | null;
+  source?: string | null;
+};
+
 export interface Database {
   public: {
     Tables: {
@@ -26,13 +138,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          spotify_id?: string | null;
-          display_name: string;
-          email?: string | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["users"]["Insert"]>;
+        Insert: UsersInsert;
+        Update: Partial<UsersInsert>;
       };
       preferences: {
         Row: {
@@ -49,19 +156,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          user_id: string;
-          home_postcode?: string | null;
-          preferred_cities?: string[];
-          max_price_gbp?: number | null;
-          ticket_count?: number;
-          max_radius_miles?: number | null;
-          reject_restricted_view?: boolean;
-          allow_tributes?: boolean;
-          timezone?: string;
-        };
-        Update: Partial<Database["public"]["Tables"]["preferences"]["Insert"]>;
+        Insert: PreferencesInsert;
+        Update: Partial<PreferencesInsert>;
       };
       spotify_connections: {
         Row: {
@@ -75,15 +171,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          user_id: string;
-          access_token_encrypted: string;
-          refresh_token_encrypted: string;
-          token_expires_at: string;
-          scopes?: string;
-        };
-        Update: Partial<Database["public"]["Tables"]["spotify_connections"]["Insert"]>;
+        Insert: SpotifyConnectionsInsert;
+        Update: Partial<SpotifyConnectionsInsert>;
       };
       artists: {
         Row: {
@@ -93,13 +182,8 @@ export interface Database {
           image_url: string | null;
           created_at: string;
         };
-        Insert: {
-          id?: string;
-          name: string;
-          spotify_id?: string | null;
-          image_url?: string | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["artists"]["Insert"]>;
+        Insert: ArtistsInsert;
+        Update: Partial<ArtistsInsert>;
       };
       user_artists: {
         Row: {
@@ -112,15 +196,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          user_id: string;
-          artist_id: string;
-          source: ArtistSource;
-          relationship?: ArtistRelationship;
-          spotify_score?: number | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["user_artists"]["Insert"]>;
+        Insert: UserArtistsInsert;
+        Update: Partial<UserArtistsInsert>;
       };
       events: {
         Row: {
@@ -145,27 +222,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          provider: string;
-          provider_event_id: string;
-          title: string;
-          event_type: EventType;
-          artist_name?: string | null;
-          inspired_artist?: string | null;
-          performer?: string | null;
-          venue_name?: string | null;
-          venue_postcode?: string | null;
-          venue_city?: string | null;
-          starts_at?: string | null;
-          timezone?: string;
-          official_url?: string | null;
-          image_url?: string | null;
-          is_mock?: boolean;
-          source_payload?: Record<string, unknown> | null;
-          observed_at?: string;
-        };
-        Update: Partial<Database["public"]["Tables"]["events"]["Insert"]>;
+        Insert: EventsInsert;
+        Update: Partial<EventsInsert>;
       };
       event_offers: {
         Row: {
@@ -182,20 +240,8 @@ export interface Database {
           observed_at: string;
           created_at: string;
         };
-        Insert: {
-          id?: string;
-          event_id: string;
-          price_amount?: number | null;
-          price_currency?: string;
-          price_type?: PriceType | null;
-          section?: string | null;
-          row_name?: string | null;
-          seat_quality?: SeatQuality;
-          is_adjacent?: boolean | null;
-          seller?: string | null;
-          observed_at?: string;
-        };
-        Update: Partial<Database["public"]["Tables"]["event_offers"]["Insert"]>;
+        Insert: EventOffersInsert;
+        Update: Partial<EventOffersInsert>;
       };
       alert_candidates: {
         Row: {
@@ -210,17 +256,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          user_id: string;
-          event_id: string;
-          alert_type?: AlertType;
-          score?: number;
-          reasons?: string[];
-          warnings?: string[];
-          status?: AlertStatus;
-        };
-        Update: Partial<Database["public"]["Tables"]["alert_candidates"]["Insert"]>;
+        Insert: AlertCandidatesInsert;
+        Update: Partial<AlertCandidatesInsert>;
       };
       message_deliveries: {
         Row: {
@@ -236,18 +273,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: {
-          id?: string;
-          alert_candidate_id: string;
-          provider: MessageProvider;
-          provider_message_id?: string | null;
-          recipient?: string | null;
-          status?: MessageStatus;
-          preview_text?: string | null;
-          sent_at?: string | null;
-          error_message?: string | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["message_deliveries"]["Insert"]>;
+        Insert: MessageDeliveriesInsert;
+        Update: Partial<MessageDeliveriesInsert>;
       };
       consents: {
         Row: {
@@ -259,15 +286,8 @@ export interface Database {
           source: string | null;
           created_at: string;
         };
-        Insert: {
-          id?: string;
-          user_id: string;
-          consent_type: ConsentType;
-          granted_at?: string;
-          revoked_at?: string | null;
-          source?: string | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["consents"]["Insert"]>;
+        Insert: ConsentsInsert;
+        Update: Partial<ConsentsInsert>;
       };
     };
   };
