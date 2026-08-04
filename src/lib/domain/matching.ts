@@ -207,14 +207,14 @@ function findArtistMatch(
     );
     if (exact) return exact;
 
-    // Contains match: artist name appears within event artist/title
-    const contains = followedArtists.find(
-      (a) =>
-        a.relationship !== "remove" &&
-        a.name.length >= 4 &&
-        candidateLower.includes(a.name.toLowerCase())
-    );
-    if (contains) return contains;
+    // Word boundary match: artist name appears as whole word(s) in event artist/title
+    const boundary = followedArtists.find((a) => {
+      if (a.relationship === "remove" || a.name.length < 4) return false;
+      const escaped = a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(^|[\\s,\\-—(])${escaped}([\\s,\\-—)!?]|$)`, "i");
+      return re.test(candidate);
+    });
+    if (boundary) return boundary;
   }
   return null;
 }
