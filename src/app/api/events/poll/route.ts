@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { events, tmError } = await fetchEvents(cities, artistNames);
+  const { events, tmError } = await fetchEvents(cities);
   const result = await ingestEvents(events);
 
   const tmCount = events.filter((e: { provider: string }) => e.provider === "ticketmaster").length;
