@@ -215,8 +215,15 @@ export async function deliverAlerts(userId: string): Promise<{
         error_message: result.error || null,
       });
 
-      if (result.success) sent++;
-      else failed++;
+      if (result.success) {
+        sent++;
+        await supabase
+          .from("alert_candidates")
+          .update({ status: "sent" })
+          .eq("id", candidate.id);
+      } else {
+        failed++;
+      }
     } else {
       await supabase.from("message_deliveries").insert({
         alert_candidate_id: candidate.id,
@@ -226,12 +233,10 @@ export async function deliverAlerts(userId: string): Promise<{
         sent_at: new Date().toISOString(),
       });
       previewed++;
-    }
-
-    await supabase
-      .from("alert_candidates")
-      .update({ status: "sent" })
-      .eq("id", candidate.id);
+      await supabase
+        .from("alert_candidates")
+        .update({ status: "sent" })
+        .eq("id", candidate.id);
   }
 
   return { sent, previewed, failed };
