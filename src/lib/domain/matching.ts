@@ -61,7 +61,8 @@ export function matchEvent(input: MatchInput): MatchResult {
     const artistMatch = findArtistMatch(
       event.artist_name,
       event.inspired_artist,
-      followedArtists
+      followedArtists,
+      event.title
     );
     if (artistMatch) {
       reasons.push(`Followed artist: ${artistMatch.name}`);
@@ -191,17 +192,29 @@ export function matchEvent(input: MatchInput): MatchResult {
 function findArtistMatch(
   artistName: string | null,
   inspiredArtist: string | null,
-  followedArtists: { name: string; relationship: string }[]
+  followedArtists: { name: string; relationship: string }[],
+  eventTitle?: string
 ): { name: string } | null {
-  const candidates = [inspiredArtist, artistName].filter(Boolean) as string[];
+  const candidates = [inspiredArtist, artistName, eventTitle].filter(Boolean) as string[];
 
   for (const candidate of candidates) {
-    const match = followedArtists.find(
+    const candidateLower = candidate.toLowerCase();
+    // Exact match first
+    const exact = followedArtists.find(
       (a) =>
         a.relationship !== "remove" &&
-        a.name.toLowerCase() === candidate.toLowerCase()
+        a.name.toLowerCase() === candidateLower
     );
-    if (match) return match;
+    if (exact) return exact;
+
+    // Contains match: artist name appears within event artist/title
+    const contains = followedArtists.find(
+      (a) =>
+        a.relationship !== "remove" &&
+        a.name.length >= 4 &&
+        candidateLower.includes(a.name.toLowerCase())
+    );
+    if (contains) return contains;
   }
   return null;
 }
