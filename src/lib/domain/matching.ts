@@ -1,21 +1,24 @@
 import { createServerClient } from "@/lib/supabase/server";
+import { classifyArtistMatchBatch } from "@/lib/integrations/openai";
+
+interface MatchEvent {
+  id: string;
+  title: string;
+  event_type: string;
+  artist_name: string | null;
+  inspired_artist: string | null;
+  performer: string | null;
+  venue_name: string | null;
+  venue_postcode: string | null;
+  venue_city: string | null;
+  starts_at: string | null;
+  official_url: string | null;
+  is_mock: boolean;
+  observed_at: string;
+}
 
 interface MatchInput {
-  event: {
-    id: string;
-    title: string;
-    event_type: string;
-    artist_name: string | null;
-    inspired_artist: string | null;
-    performer: string | null;
-    venue_name: string | null;
-    venue_postcode: string | null;
-    venue_city: string | null;
-    starts_at: string | null;
-    official_url: string | null;
-    is_mock: boolean;
-    observed_at: string;
-  };
+  event: MatchEvent;
   offers: {
     price_amount: number | null;
     price_currency: string;
@@ -37,6 +40,7 @@ interface MatchInput {
     name: string;
     relationship: string;
   }[];
+  aiMatchedArtist?: string | null;
 }
 
 interface MatchResult {
@@ -106,6 +110,15 @@ export function matchEvent(input: MatchInput): MatchResult {
       reasons.push(`Followed artist: ${artistMatch.name} (inspired experience)`);
     } else {
       reasons.push(`Followed artist: ${artistMatch.name}`);
+    }
+  } else if (input.aiMatchedArtist) {
+    score += 35;
+    if (event.event_type === "tribute_concert") {
+      reasons.push(`AI matched: ${input.aiMatchedArtist} (tribute)`);
+    } else if (event.event_type === "recurring_experience") {
+      reasons.push(`AI matched: ${input.aiMatchedArtist} (inspired experience)`);
+    } else {
+      reasons.push(`AI matched: ${input.aiMatchedArtist}`);
     }
   }
 
@@ -178,7 +191,7 @@ export function matchEvent(input: MatchInput): MatchResult {
     warnings.push("Availability must be checked");
   }
 
-  const hasArtistMatch = !!artistMatch;
+  const hasArtistMatch = !!artistMatch || !!input.aiMatchedArtist;
   return {
     eligible: !rejected && hasArtistMatch && score > 0,
     score,
@@ -256,6 +269,7 @@ export async function runMatchingForUser(userId: string): Promise<{
   matched: number;
   rejected: number;
   watching: number;
+  aiMatched: number;
 }> {
   const supabase = createServerClient();
 
@@ -274,7 +288,7 @@ export async function runMatchingForUser(userId: string): Promise<{
   ]);
 
   if (!prefsRes.data || !eventsRes.data) {
-    return { matched: 0, rejected: 0, watching: 0 };
+    return { matched: 0, rejected: 0, watching: 0, aiMatched: 0 };
   }
 
   const prefs = prefsRes.data;
@@ -282,10 +296,15 @@ export async function runMatchingForUser(userId: string): Promise<{
     name: (ua.artists as unknown as { name: string })?.name || "",
     relationship: ua.relationship as string,
   }));
+  const artistNames = followedArtists.map((a) => a.name).filter(Boolean);
 
   let matched = 0;
   let rejected = 0;
   let watching = 0;
+  let aiMatched = 0;
+
+  // Pass 1: regex matching
+  const unmatchedEvents: { event: MatchEvent; offers: MatchInput["offers"] }[] = [];
 
   for (const event of eventsRes.data) {
     const { data: existingCandidate } = await supabase
@@ -298,31 +317,95 @@ export async function runMatchingForUser(userId: string): Promise<{
 
     if (existingCandidate) continue;
 
-    const result = matchEvent({
-      event: event as MatchInput["event"],
-      offers: (event.event_offers || []) as MatchInput["offers"],
-      userPrefs: prefs as MatchInput["userPrefs"],
-      followedArtists,
-    });
+    const typedEvent = event as MatchEvent;
+    const offers = (event.event_offers || []) as MatchInput["offers"];
 
-    if (result.status === "rejected") {
-      rejected++;
-      continue;
+    const regexMatch = findArtistMatch(
+      typedEvent.artist_name,
+      typedEvent.inspired_artist,
+      followedArtists
+    );
+
+    if (regexMatch) {
+      const result = matchEvent({
+        event: typedEvent,
+        offers,
+        userPrefs: prefs as MatchInput["userPrefs"],
+        followedArtists,
+      });
+
+      if (result.status === "rejected") {
+        rejected++;
+        continue;
+      }
+
+      await supabase.from("alert_candidates").insert({
+        user_id: userId,
+        event_id: event.id,
+        alert_type: result.alertType,
+        score: result.score,
+        reasons: result.reasons,
+        warnings: result.warnings,
+        status: result.status,
+      });
+
+      if (result.status === "eligible") matched++;
+      else if (result.status === "watching_for_dates") watching++;
+    } else {
+      unmatchedEvents.push({ event: typedEvent, offers });
     }
-
-    await supabase.from("alert_candidates").insert({
-      user_id: userId,
-      event_id: event.id,
-      alert_type: result.alertType,
-      score: result.score,
-      reasons: result.reasons,
-      warnings: result.warnings,
-      status: result.status,
-    });
-
-    if (result.status === "eligible") matched++;
-    else if (result.status === "watching_for_dates") watching++;
   }
 
-  return { matched, rejected, watching };
+  // Pass 2: send unmatched events to OpenAI for fuzzy classification
+  if (unmatchedEvents.length > 0 && artistNames.length > 0 && process.env.OPENAI_API_SECRET) {
+    const aiRequests = unmatchedEvents.map((item) => ({
+      eventTitle: item.event.title,
+      eventArtistName: item.event.artist_name,
+      eventInspiredArtist: item.event.inspired_artist,
+      eventType: item.event.event_type,
+      followedArtists: artistNames,
+    }));
+
+    const aiResults = await classifyArtistMatchBatch(aiRequests);
+
+    for (let i = 0; i < unmatchedEvents.length; i++) {
+      const { event: typedEvent, offers } = unmatchedEvents[i];
+      const aiResult = aiResults[i];
+
+      const result = matchEvent({
+        event: typedEvent,
+        offers,
+        userPrefs: prefs as MatchInput["userPrefs"],
+        followedArtists,
+        aiMatchedArtist: aiResult.matched ? aiResult.artistName : null,
+      });
+
+      if (result.status === "rejected") {
+        rejected++;
+        continue;
+      }
+
+      await supabase.from("alert_candidates").insert({
+        user_id: userId,
+        event_id: typedEvent.id,
+        alert_type: result.alertType,
+        score: result.score,
+        reasons: result.reasons,
+        warnings: result.warnings,
+        status: result.status,
+      });
+
+      if (result.status === "eligible") {
+        matched++;
+        if (aiResult.matched) aiMatched++;
+      } else if (result.status === "watching_for_dates") {
+        watching++;
+      }
+    }
+  } else {
+    // No AI available — reject unmatched events
+    rejected += unmatchedEvents.length;
+  }
+
+  return { matched, rejected, watching, aiMatched };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { CardSkeleton, Skeleton, Spinner } from "@/components/loading";
 
 interface AlertCandidate {
   id: string;
@@ -36,6 +37,7 @@ export default function AlertsPage() {
   const [loading, setLoading] = useState(true);
   const [matching, setMatching] = useState(false);
   const [sending, setSending] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   const fetchAlerts = useCallback(async () => {
@@ -56,8 +58,9 @@ export default function AlertsPage() {
     setStatus(null);
     const res = await fetch("/api/alerts/match", { method: "POST" });
     const data = await res.json();
+    const aiNote = data.aiMatched > 0 ? ` (${data.aiMatched} via AI)` : "";
     setStatus(
-      `Matched ${data.matched}, rejected ${data.rejected}, watching ${data.watching}`
+      `Matched ${data.matched}${aiNote}, rejected ${data.rejected}, watching ${data.watching}`
     );
     await fetchAlerts();
     setMatching(false);
@@ -68,15 +71,40 @@ export default function AlertsPage() {
     setStatus(null);
     const res = await fetch("/api/alerts/send", { method: "POST" });
     const data = await res.json();
-    setStatus(
-      `Sent ${data.sent}, previewed ${data.previewed}, failed ${data.failed}`
-    );
+    let msg = `Sent ${data.sent}, previewed ${data.previewed}, failed ${data.failed}`;
+    if (data.errors?.length > 0) {
+      msg += ` — ${data.errors.join("; ")}`;
+    }
+    setStatus(msg);
     await fetchAlerts();
     setSending(false);
   }
 
+  async function handleTestAlert() {
+    setTesting(true);
+    setStatus(null);
+    const res = await fetch("/api/alerts/test", { method: "POST" });
+    const data = await res.json();
+    setStatus(
+      data.success
+        ? "Test alert sent — check WhatsApp"
+        : `Test failed: ${data.error}`
+    );
+    setTesting(false);
+  }
+
   if (loading) {
-    return <div className="py-12 text-center text-muted">Loading...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-24" />
+          <Skeleton className="h-4 w-48" />
+        </div>
+        <CardSkeleton />
+        <CardSkeleton />
+        <CardSkeleton />
+      </div>
+    );
   }
 
   const eligible = alerts.filter((a) => a.status === "eligible");
@@ -98,16 +126,23 @@ export default function AlertsPage() {
           <button
             onClick={handleMatch}
             disabled={matching}
-            className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
           >
-            {matching ? "Matching..." : "Run matching"}
+            {matching ? <><Spinner /> Matching...</> : "Run matching"}
           </button>
           <button
             onClick={handleSend}
             disabled={sending || eligible.length === 0}
-            className="text-sm bg-surface border border-border px-3 py-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-50"
+            className="text-sm bg-surface border border-border px-3 py-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
           >
-            {sending ? "Sending..." : "Send alerts"}
+            {sending ? <><Spinner /> Sending...</> : "Send alerts"}
+          </button>
+          <button
+            onClick={handleTestAlert}
+            disabled={testing}
+            className="text-sm text-muted border border-border px-3 py-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            {testing ? <><Spinner /> Testing...</> : "Test alert"}
           </button>
         </div>
       </div>
@@ -142,7 +177,7 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
 
   const statusColors: Record<string, string> = {
     eligible: "bg-accent/10 text-accent",
-    sent: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+    sent: "bg-success-light text-success",
     rejected: "bg-coral/10 text-coral",
     watching_for_dates: "bg-gold/20 text-gold",
   };

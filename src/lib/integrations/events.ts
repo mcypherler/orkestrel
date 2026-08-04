@@ -1,4 +1,3 @@
-import { createServerClient } from "@/lib/supabase/server";
 import type { NormalizedEvent } from "@/lib/integrations/ticketmaster";
 import { fetchTicketmasterEvents } from "@/lib/integrations/ticketmaster";
 import { MOCK_EVENTS } from "@/lib/fixtures/mock-events";
@@ -18,18 +17,49 @@ export async function fetchEvents(
 ): Promise<{ events: NormalizedEvent[]; tmError: string | null }> {
   const mode = getSourceMode();
   const events: NormalizedEvent[] = [];
+  const seenIds = new Set<string>();
 
   let tmError: string | null = null;
   if (mode === "ticketmaster" || mode === "hybrid") {
     try {
-      const result = await fetchTicketmasterEvents(cities, 30, artistNames);
-      events.push(...result.events);
+      const result = await fetchTicketmasterEvents(cities, 30);
+      for (const ev of result.events) {
+        if (!seenIds.has(ev.provider_event_id)) {
+          seenIds.add(ev.provider_event_id);
+          events.push(ev);
+        }
+      }
       if (result.errors.length > 0) {
         tmError = result.errors.join("; ");
       }
     } catch (err) {
       tmError = String(err);
       console.error("Ticketmaster fetch failed:", err);
+    }
+
+    if (artistNames && artistNames.length > 0) {
+      const batches: string[][] = [];
+      for (let i = 0; i < artistNames.length; i += 5) {
+        batches.push(artistNames.slice(i, i + 5));
+      }
+      const maxBatches = Math.min(batches.length, 4);
+      for (let i = 0; i < maxBatches; i++) {
+        try {
+          const result = await fetchTicketmasterEvents(
+            cities.length > 0 ? cities : ["London"],
+            50,
+            batches[i]
+          );
+          for (const ev of result.events) {
+            if (!seenIds.has(ev.provider_event_id)) {
+              seenIds.add(ev.provider_event_id);
+              events.push(ev);
+            }
+          }
+        } catch {
+          // artist-specific search is supplementary; failures are acceptable
+        }
+      }
     }
   }
 
@@ -46,6 +76,7 @@ export async function fetchEvents(
 export async function ingestEvents(
   events: NormalizedEvent[]
 ): Promise<{ created: number; updated: number; duplicates: number }> {
+  const { createServerClient } = await import("@/lib/supabase/server");
   const supabase = createServerClient();
   let created = 0;
   let updated = 0;

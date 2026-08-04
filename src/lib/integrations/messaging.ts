@@ -90,10 +90,16 @@ export function buildSeatNote(
   return "View not verified";
 }
 
-async function sendViaTwilio(message: string): Promise<{
+const PERMANENT_ERROR_CODES = [20003, 20404, 21211, 21408, 21610, 21614];
+
+async function sendViaTwilio(
+  message: string,
+  maxRetries = 2
+): Promise<{
   success: boolean;
   messageId?: string;
   error?: string;
+  attempts: number;
 }> {
   const accountSid = process.env.TWILLIO_API_CLIENTID;
   const authToken = process.env.TWILLIO_API_SECRET;
@@ -101,47 +107,91 @@ async function sendViaTwilio(message: string): Promise<{
   const to = process.env.WHATSAPP_RECIPIENT;
 
   if (!accountSid || !authToken || !from || !to) {
-    return { success: false, error: "Twilio not configured" };
-  }
-
-  try {
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${Buffer.from(
-            `${accountSid}:${authToken}`
-          ).toString("base64")}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          From: from,
-          To: to,
-          Body: message,
-        }),
-      }
-    );
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      return { success: false, error: data.message || `HTTP ${res.status}` };
-    }
-
-    return { success: true, messageId: data.sid };
-  } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Unknown error",
+      error: `Twilio not configured: ${[
+        !accountSid && "TWILLIO_API_CLIENTID",
+        !authToken && "TWILLIO_API_SECRET",
+        !from && "TWILIO_WHATSAPP_FROM",
+        !to && "WHATSAPP_RECIPIENT",
+      ]
+        .filter(Boolean)
+        .join(", ")} missing`,
+      attempts: 0,
     };
   }
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const auth = `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`;
+  const body = new URLSearchParams({ From: from, To: to, Body: message });
+
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: auth,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body,
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        return { success: true, messageId: data.sid, attempts: attempt };
+      }
+
+      const errorCode = data.code as number | undefined;
+      if (errorCode && PERMANENT_ERROR_CODES.includes(errorCode)) {
+        return {
+          success: false,
+          error: `[${errorCode}] ${data.message || `HTTP ${res.status}`}`,
+          attempts: attempt,
+        };
+      }
+
+      if (attempt <= maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+        continue;
+      }
+
+      return {
+        success: false,
+        error: data.message || `HTTP ${res.status}`,
+        attempts: attempt,
+      };
+    } catch (err) {
+      if (attempt <= maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+        continue;
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+        attempts: attempt,
+      };
+    }
+  }
+
+  return { success: false, error: "Max retries exceeded", attempts: maxRetries + 1 };
+}
+
+export async function sendTestAlert(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const result = await sendViaTwilio(
+    "🧪 Orkestrel test alert\nThis confirms WhatsApp delivery is working."
+  );
+  return { success: result.success, error: result.error };
 }
 
 export async function deliverAlerts(userId: string): Promise<{
   sent: number;
   previewed: number;
   failed: number;
+  errors: string[];
 }> {
   const supabase = createServerClient();
   const provider = process.env.WHATSAPP_PROVIDER || "console";
@@ -156,12 +206,13 @@ export async function deliverAlerts(userId: string): Promise<{
     .order("score", { ascending: false });
 
   if (!candidates || candidates.length === 0) {
-    return { sent: 0, previewed: 0, failed: 0 };
+    return { sent: 0, previewed: 0, failed: 0, errors: [] };
   }
 
   let sent = 0;
   let previewed = 0;
   let failed = 0;
+  const errors: string[] = [];
 
   for (const candidate of candidates) {
     const event = candidate.events as Record<string, unknown>;
@@ -223,6 +274,7 @@ export async function deliverAlerts(userId: string): Promise<{
           .eq("id", candidate.id);
       } else {
         failed++;
+        errors.push(`${event.title}: ${result.error}`);
       }
     } else {
       await supabase.from("message_deliveries").insert({
@@ -240,5 +292,5 @@ export async function deliverAlerts(userId: string): Promise<{
     }
   }
 
-  return { sent, previewed, failed };
+  return { sent, previewed, failed, errors };
 }

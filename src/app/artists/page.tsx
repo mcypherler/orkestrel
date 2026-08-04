@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { CardSkeleton, Skeleton } from "@/components/loading";
 
 interface Artist {
   id: string;
@@ -82,7 +83,7 @@ export default function ArtistsPage() {
 
   if (loading) {
     return (
-      <div className="py-12 text-center text-muted">Loading...</div>
+      <div className="space-y-6"><Skeleton className="h-7 w-24" /><Skeleton className="h-4 w-40 mt-2" /><CardSkeleton /><CardSkeleton /><CardSkeleton /></div>
     );
   }
 

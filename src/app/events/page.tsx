@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { CardSkeleton, Skeleton } from "@/components/loading";
 
 interface EventOffer {
   id: string;
@@ -68,7 +69,7 @@ export default function EventsPage() {
   }
 
   if (loading) {
-    return <div className="py-12 text-center text-muted">Loading...</div>;
+    return (<div className="space-y-6"><Skeleton className="h-7 w-24" /><Skeleton className="h-4 w-40 mt-2" /><CardSkeleton /><CardSkeleton /><CardSkeleton /></div>);
   }
 
   return (
@@ -84,7 +85,7 @@ export default function EventsPage() {
         <button
           onClick={handlePoll}
           disabled={polling}
-          className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+          className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
         >
           {polling ? "Polling..." : "Poll now"}
         </button>
@@ -188,10 +189,12 @@ function EventCard({ event }: { event: Event }) {
                 {bestOffer.price_type === "from" && "From "}
                 &pound;{bestOffer.price_amount?.toFixed(2)}
               </p>
-              <p className="text-xs text-muted">per person</p>
+              <p className="text-xs text-muted">
+                {bestOffer.seller || "Check seller"}
+              </p>
             </div>
           ) : (
-            <p className="text-xs text-muted">Price not supplied</p>
+            <p className="text-xs text-muted">Price not yet available</p>
           )}
         </div>
       </div>
@@ -202,7 +205,7 @@ function EventCard({ event }: { event: Event }) {
             href={event.official_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-accent hover:underline"
+            className="text-xs text-accent hover:text-accent-hover transition-colors"
           >
             View on source
           </a>
