@@ -43,11 +43,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const events = await fetchEvents(cities, artistNames);
+  const { events, tmError } = await fetchEvents(cities, artistNames);
   const result = await ingestEvents(events);
 
-  const tmCount = events.filter((e) => e.provider === "ticketmaster").length;
-  const mockCount = events.filter((e) => e.provider === "mock").length;
+  const tmCount = events.filter((e: { provider: string }) => e.provider === "ticketmaster").length;
+  const mockCount = events.filter((e: { provider: string }) => e.provider === "mock").length;
 
   return NextResponse.json({
     ...result,
@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     sources: { ticketmaster: tmCount, mock: mockCount },
     mode: process.env.EVENT_SOURCE_MODE || "hybrid",
     ticketmaster_configured: !!process.env.TICKETMASTER_API_KEY,
+    tm_error: tmError,
     timestamp: new Date().toISOString(),
   });
 }

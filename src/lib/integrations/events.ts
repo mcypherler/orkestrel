@@ -15,15 +15,17 @@ function getSourceMode(): SourceMode {
 export async function fetchEvents(
   cities: string[],
   artistNames?: string[]
-): Promise<NormalizedEvent[]> {
+): Promise<{ events: NormalizedEvent[]; tmError: string | null }> {
   const mode = getSourceMode();
   const events: NormalizedEvent[] = [];
 
+  let tmError: string | null = null;
   if (mode === "ticketmaster" || mode === "hybrid") {
     try {
       const tmEvents = await fetchTicketmasterEvents(cities, 30, artistNames);
       events.push(...tmEvents);
     } catch (err) {
+      tmError = String(err);
       console.error("Ticketmaster fetch failed:", err);
     }
   }
@@ -35,7 +37,7 @@ export async function fetchEvents(
     }
   }
 
-  return events;
+  return { events, tmError };
 }
 
 export async function ingestEvents(

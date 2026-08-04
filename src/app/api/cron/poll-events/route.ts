@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const cities = ["Poole", "Bournemouth", "London"];
 
   try {
-    const events = await fetchEvents(cities);
+    const { events } = await fetchEvents(cities);
     const ingestResult = await ingestEvents(events);
 
     const supabase = createServerClient();
