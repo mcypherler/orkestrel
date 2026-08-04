@@ -67,17 +67,21 @@ export async function fetchTicketmasterEvents(
   cities: string[],
   radiusMiles: number = 30,
   artistNames?: string[]
-): Promise<NormalizedEvent[]> {
+): Promise<{ events: NormalizedEvent[]; errors: string[] }> {
   const apiKey = process.env.TICKETMASTER_API_KEY;
   if (!apiKey) throw new Error("TICKETMASTER_API_KEY not set");
 
   const events: NormalizedEvent[] = [];
+  const errors: string[] = [];
   const seenIds = new Set<string>();
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
   for (const city of cities) {
     const geo = CITY_GEOPOINTS[city.toLowerCase()];
-    if (!geo) continue;
+    if (!geo) {
+      errors.push(`No geopoint for city: ${city}`);
+      continue;
+    }
 
     const geoPoint = toGeohash(geo.lat, geo.lng);
 
@@ -98,17 +102,21 @@ export async function fetchTicketmasterEvents(
     }
 
     try {
-      const res = await fetch(`${API_BASE}/events.json?${params}`, {
+      const url = `${API_BASE}/events.json?${params}`;
+      const res = await fetch(url, {
         headers: { Accept: "application/json" },
       });
 
       if (res.status === 429) {
-        const retryAfter = res.headers.get("Retry-After");
-        console.warn(`Ticketmaster rate limited, retry after ${retryAfter}s`);
+        errors.push(`${city}: rate limited`);
         continue;
       }
 
-      if (!res.ok) continue;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        errors.push(`${city}: HTTP ${res.status} - ${body.slice(0, 200)}`);
+        continue;
+      }
 
       const data = await res.json();
       const tmEvents = data?._embedded?.events || [];
@@ -121,11 +129,11 @@ export async function fetchTicketmasterEvents(
         if (normalized) events.push(normalized);
       }
     } catch (err) {
-      console.error(`Ticketmaster fetch error for ${city}:`, err);
+      errors.push(`${city}: ${String(err)}`);
     }
   }
 
-  return events;
+  return { events, errors };
 }
 
 function normalizeTicketmasterEvent(
