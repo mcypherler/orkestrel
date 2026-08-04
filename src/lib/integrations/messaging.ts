@@ -237,6 +237,7 @@ export async function deliverAlerts(userId: string): Promise<{
         .from("alert_candidates")
         .update({ status: "sent" })
         .eq("id", candidate.id);
+    }
   }
 
   return { sent, previewed, failed };
