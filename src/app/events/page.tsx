@@ -52,8 +52,14 @@ export default function EventsPage() {
     setPollResult(null);
     const res = await fetch("/api/events/poll", { method: "POST" });
     const data = await res.json();
+    const src = data.sources
+      ? ` (TM: ${data.sources.ticketmaster}, mock: ${data.sources.mock})`
+      : "";
+    const tmNote = data.ticketmaster_configured === false
+      ? " · TICKETMASTER_API_KEY not set!"
+      : "";
     setPollResult(
-      `Fetched ${data.total_fetched}, created ${data.created}, updated ${data.updated}, duplicates ${data.duplicates}`
+      `Fetched ${data.total_fetched}${src}, created ${data.created}, updated ${data.updated}, duplicates ${data.duplicates}${tmNote}`
     );
     await fetchEvents();
     setPolling(false);
