@@ -10,7 +10,11 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get("state");
   const error = searchParams.get("error");
   const storedState = request.cookies.get("spotify_oauth_state")?.value;
-  const appUrl = process.env.APP_URL || "http://127.0.0.1:3000";
+  const appUrl =
+    process.env.APP_URL ||
+    (process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://127.0.0.1:3000");
 
   if (error) {
     return NextResponse.redirect(
