@@ -177,11 +177,12 @@ export function matchEvent(input: MatchInput): MatchResult {
     warnings.push("Availability must be checked");
   }
 
+  const hasArtistMatch = !!artistMatch;
   return {
-    eligible: !rejected && score > 0,
+    eligible: !rejected && hasArtistMatch && score > 0,
     score,
     alertType: "new_event",
-    status: rejected ? "rejected" : score > 0 ? "eligible" : "rejected",
+    status: rejected ? "rejected" : hasArtistMatch && score > 0 ? "eligible" : "rejected",
     reasons,
     warnings,
   };
@@ -291,7 +292,8 @@ export async function runMatchingForUser(userId: string): Promise<{
       followedArtists,
     });
 
-    if (result.score === 0 && result.status === "rejected" && result.reasons.length === 0) {
+    if (result.status === "rejected") {
+      rejected++;
       continue;
     }
 
@@ -306,7 +308,6 @@ export async function runMatchingForUser(userId: string): Promise<{
     });
 
     if (result.status === "eligible") matched++;
-    else if (result.status === "rejected") rejected++;
     else if (result.status === "watching_for_dates") watching++;
   }
 
