@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 
 interface User {
@@ -33,6 +34,13 @@ export default function Nav() {
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
+            <Image
+              src="/logo.png"
+              alt="Orkestrel"
+              width={28}
+              height={28}
+              className="dark:invert"
+            />
             <span className="font-semibold text-lg tracking-tight">
               Orkestrel
             </span>
