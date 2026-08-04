@@ -58,8 +58,9 @@ export default function AlertsPage() {
     setStatus(null);
     const res = await fetch("/api/alerts/match", { method: "POST" });
     const data = await res.json();
+    const aiNote = data.aiMatched > 0 ? ` (${data.aiMatched} via AI)` : "";
     setStatus(
-      `Matched ${data.matched}, rejected ${data.rejected}, watching ${data.watching}`
+      `Matched ${data.matched}${aiNote}, rejected ${data.rejected}, watching ${data.watching}`
     );
     await fetchAlerts();
     setMatching(false);

@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
 
     let totalMatched = 0;
     let totalRejected = 0;
+    let totalAiMatched = 0;
     let totalSent = 0;
     let totalFailed = 0;
     const userErrors: string[] = [];
@@ -83,6 +84,7 @@ export async function GET(request: NextRequest) {
         const matchResult = await runMatchingForUser(user.id);
         totalMatched += matchResult.matched;
         totalRejected += matchResult.rejected;
+        totalAiMatched += matchResult.aiMatched;
 
         const deliveryResult = await deliverAlerts(user.id);
         totalSent += deliveryResult.sent + deliveryResult.previewed;
@@ -102,7 +104,7 @@ export async function GET(request: NextRequest) {
       runId,
       cities: Array.from(citySet),
       events: ingestResult,
-      matching: { matched: totalMatched, rejected: totalRejected },
+      matching: { matched: totalMatched, rejected: totalRejected, aiMatched: totalAiMatched },
       delivery: { sent: totalSent, failed: totalFailed },
       errors: userErrors.length > 0 ? userErrors : undefined,
       usersProcessed: (users || []).length,
