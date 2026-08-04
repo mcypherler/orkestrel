@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase/server";
-import { classifyArtistMatchBatch } from "@/lib/integrations/openai";
+import { classifyArtistMatchBatchCached } from "@/lib/integrations/openai";
 
 interface MatchEvent {
   id: string;
@@ -356,17 +356,19 @@ export async function runMatchingForUser(userId: string): Promise<{
     }
   }
 
-  // Pass 2: send unmatched events to OpenAI for fuzzy classification
+  // Pass 2: send unmatched events to OpenAI for fuzzy classification (cached)
   if (unmatchedEvents.length > 0 && artistNames.length > 0 && process.env.OPENAI_API_SECRET) {
     const aiRequests = unmatchedEvents.map((item) => ({
+      eventId: item.event.id,
       eventTitle: item.event.title,
       eventArtistName: item.event.artist_name,
       eventInspiredArtist: item.event.inspired_artist,
+      eventPerformer: item.event.performer,
       eventType: item.event.event_type,
       followedArtists: artistNames,
     }));
 
-    const aiResults = await classifyArtistMatchBatch(aiRequests);
+    const aiResults = await classifyArtistMatchBatchCached(aiRequests, supabase);
 
     for (let i = 0; i < unmatchedEvents.length; i++) {
       const { event: typedEvent, offers } = unmatchedEvents[i];
