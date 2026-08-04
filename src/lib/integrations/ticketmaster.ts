@@ -108,7 +108,10 @@ export async function fetchTicketmasterEvents(
         continue;
       }
 
-      if (!res.ok) continue;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Ticketmaster ${res.status}: ${body.slice(0, 200)}`);
+      }
 
       const data = await res.json();
       const tmEvents = data?._embedded?.events || [];
