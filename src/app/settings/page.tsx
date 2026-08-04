@@ -8,28 +8,70 @@ interface User {
   spotifyId: string;
 }
 
+interface Preferences {
+  home_postcode: string | null;
+  preferred_cities: string[];
+  max_price_gbp: number | null;
+  ticket_count: number;
+  max_radius_miles: number | null;
+  reject_restricted_view: boolean;
+  allow_tributes: boolean;
+}
+
 export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
+  const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [newCity, setNewCity] = useState("");
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((d) => {
-        setUser(d.user);
-        setLoading(false);
-      });
+    Promise.all([
+      fetch("/api/auth/me").then((r) => r.json()),
+      fetch("/api/preferences").then((r) => r.json()).catch(() => ({ preferences: null })),
+    ]).then(([userData, prefsData]) => {
+      setUser(userData.user);
+      setPrefs(prefsData.preferences);
+      setLoading(false);
+    });
   }, []);
 
+  async function savePrefs(updates: Partial<Preferences>) {
+    setSaving(true);
+    const newPrefs = { ...prefs, ...updates } as Preferences;
+    setPrefs(newPrefs);
+    await fetch("/api/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    setSaving(false);
+  }
+
+  function addCity() {
+    if (!newCity.trim() || !prefs) return;
+    const cities = [...prefs.preferred_cities, newCity.trim()];
+    setNewCity("");
+    savePrefs({ preferred_cities: cities });
+  }
+
+  function removeCity(city: string) {
+    if (!prefs) return;
+    savePrefs({
+      preferred_cities: prefs.preferred_cities.filter((c) => c !== city),
+    });
+  }
+
   async function handleDisconnect() {
-    if (!confirm("This will remove your Spotify connection and imported artists. Continue?")) {
+    if (
+      !confirm(
+        "This will remove your Spotify connection and imported artists. Continue?"
+      )
+    )
       return;
-    }
     setDisconnecting(true);
     await fetch("/api/auth/spotify/disconnect", { method: "POST" });
-    setUser(null);
-    setDisconnecting(false);
     window.location.href = "/settings";
   }
 
@@ -52,26 +94,122 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-lg border border-border bg-surface p-5 space-y-4">
-          <h2 className="font-medium">Event preferences</h2>
-          <p className="text-sm text-muted">
-            Configure your location, budget and seat preferences. Coming in Phase 3.
-          </p>
-          <div className="space-y-2 text-sm text-muted">
-            <div className="flex justify-between">
-              <span>Default profile</span>
-              <span className="font-mono text-xs">BH14 / Bournemouth, Poole, London</span>
+        {prefs && (
+          <div className="rounded-lg border border-border bg-surface p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-medium">Event preferences</h2>
+              {saving && (
+                <span className="text-xs text-muted">Saving...</span>
+              )}
             </div>
-            <div className="flex justify-between">
-              <span>Price cap</span>
-              <span className="font-mono text-xs">&pound;50 per person</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Tickets needed</span>
-              <span className="font-mono text-xs">3</span>
+
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="text-muted">Home postcode</span>
+                <input
+                  type="text"
+                  value={prefs.home_postcode || ""}
+                  onChange={(e) =>
+                    savePrefs({ home_postcode: e.target.value || null })
+                  }
+                  className="mt-1 block w-full text-sm border border-border rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  placeholder="BH14"
+                />
+              </label>
+
+              <div className="text-sm">
+                <span className="text-muted">Preferred cities</span>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {prefs.preferred_cities.map((city) => (
+                    <span
+                      key={city}
+                      className="inline-flex items-center gap-1 bg-surface-alt text-sm px-2 py-0.5 rounded"
+                    >
+                      {city}
+                      <button
+                        onClick={() => removeCity(city)}
+                        className="text-muted hover:text-coral text-xs ml-0.5"
+                      >
+                        x
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-1.5 mt-1.5">
+                  <input
+                    type="text"
+                    value={newCity}
+                    onChange={(e) => setNewCity(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addCity()}
+                    placeholder="Add city..."
+                    className="flex-1 text-sm border border-border rounded px-2 py-1 bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  />
+                  <button
+                    onClick={addCity}
+                    className="text-xs px-2 py-1 border border-border rounded hover:bg-surface-alt"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              <label className="block text-sm">
+                <span className="text-muted">Max price per person (&pound;)</span>
+                <input
+                  type="number"
+                  value={prefs.max_price_gbp ?? ""}
+                  onChange={(e) =>
+                    savePrefs({
+                      max_price_gbp: e.target.value
+                        ? Number(e.target.value)
+                        : null,
+                    })
+                  }
+                  className="mt-1 block w-full text-sm border border-border rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  placeholder="50"
+                />
+              </label>
+
+              <label className="block text-sm">
+                <span className="text-muted">Tickets needed</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={prefs.ticket_count}
+                  onChange={(e) =>
+                    savePrefs({ ticket_count: Number(e.target.value) || 1 })
+                  }
+                  className="mt-1 block w-full text-sm border border-border rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30"
+                />
+              </label>
+
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.reject_restricted_view}
+                  onChange={(e) =>
+                    savePrefs({ reject_restricted_view: e.target.checked })
+                  }
+                  className="rounded"
+                />
+                <span>Reject restricted/obstructed views</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.allow_tributes}
+                  onChange={(e) =>
+                    savePrefs({ allow_tributes: e.target.checked })
+                  }
+                  className="rounded"
+                />
+                <span>Include tribute acts and inspired experiences</span>
+              </label>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="rounded-lg border border-border bg-surface p-5 space-y-4">
           <h2 className="font-medium">Connections</h2>

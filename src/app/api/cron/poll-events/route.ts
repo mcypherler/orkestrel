@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchEvents, ingestEvents } from "@/lib/integrations/events";
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -8,10 +9,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Phase 7: Fetch events from configured sources, normalize, deduplicate, score, enqueue alerts
-  return NextResponse.json({
-    status: "ok",
-    message: "Event polling not yet implemented",
-    timestamp: new Date().toISOString(),
-  });
+  const cities = ["Poole", "Bournemouth", "London"];
+
+  try {
+    const events = await fetchEvents(cities);
+    const result = await ingestEvents(events);
+
+    return NextResponse.json({
+      status: "ok",
+      ...result,
+      total_fetched: events.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("Cron poll failed:", err);
+    return NextResponse.json(
+      { status: "error", message: String(err) },
+      { status: 500 }
+    );
+  }
 }
