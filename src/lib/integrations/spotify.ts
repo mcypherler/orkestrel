@@ -173,7 +173,7 @@ export async function getValidAccessToken(userId: string): Promise<string> {
   return tokens.access_token;
 }
 
-const MIN_ARTIST_SCORE = 8;
+const MIN_ARTIST_SCORE = 15;
 
 export async function syncArtistsFromSpotify(userId: string): Promise<{
   imported: number;
@@ -233,6 +233,13 @@ export async function syncArtistsFromSpotify(userId: string): Promise<{
       addArtist(spotifyId, matchingArtist.name, null, count * 2);
     }
   }
+
+  await supabase
+    .from("user_artists")
+    .delete()
+    .eq("user_id", userId)
+    .eq("source", "spotify")
+    .in("relationship", ["follow"]);
 
   let imported = 0;
   let skipped = 0;

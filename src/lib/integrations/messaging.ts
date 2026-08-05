@@ -289,58 +289,68 @@ export async function deliverAlerts(userId: string): Promise<{
     }))
   );
 
-  // Reorder: big story first, then the rest
-  const ordered = [...prepared];
-  if (bigStory && bigStory.pickedIndex < ordered.length) {
-    const [picked] = ordered.splice(bigStory.pickedIndex, 1);
-    picked.preview = `⭐ Today's pick: ${bigStory.headline}\n\n${picked.preview}`;
-    ordered.unshift(picked);
+  const pickedAlert = bigStory && bigStory.pickedIndex < prepared.length
+    ? prepared[bigStory.pickedIndex]
+    : prepared[0];
+
+  const appUrl = process.env.APP_URL || "https://orkestrel.vercel.app";
+  const othersCount = prepared.length - 1;
+
+  const lines: string[] = [];
+  if (bigStory) {
+    lines.push(`⭐ ${bigStory.headline}`);
+    lines.push("");
   }
+  lines.push(pickedAlert.preview);
+  if (othersCount > 0) {
+    lines.push("");
+    lines.push(`Plus ${othersCount} more match${othersCount === 1 ? "" : "es"} today.`);
+  }
+  lines.push(`See all alerts: ${appUrl}/alerts`);
+
+  const message = lines.join("\n");
 
   let sent = 0;
   let previewed = 0;
   let failed = 0;
   const errors: string[] = [];
 
-  for (const alert of ordered) {
-    if (provider === "twilio" && alertsEnabled) {
-      const result = await sendViaTwilio(alert.preview);
+  if (provider === "twilio" && alertsEnabled) {
+    const result = await sendViaTwilio(message);
 
-      await supabase.from("message_deliveries").insert({
-        alert_candidate_id: alert.candidateId,
-        provider: "twilio",
-        provider_message_id: result.messageId || null,
-        recipient: process.env.WHATSAPP_RECIPIENT || null,
-        status: result.success ? "sent" : "failed",
-        preview_text: alert.preview,
-        sent_at: result.success ? new Date().toISOString() : null,
-        error_message: result.error || null,
-      });
+    await supabase.from("message_deliveries").insert({
+      alert_candidate_id: pickedAlert.candidateId,
+      provider: "twilio",
+      provider_message_id: result.messageId || null,
+      recipient: process.env.WHATSAPP_RECIPIENT || null,
+      status: result.success ? "sent" : "failed",
+      preview_text: message,
+      sent_at: result.success ? new Date().toISOString() : null,
+      error_message: result.error || null,
+    });
 
-      if (result.success) {
-        sent++;
-        await supabase
-          .from("alert_candidates")
-          .update({ status: "sent" })
-          .eq("id", alert.candidateId);
-      } else {
-        failed++;
-        errors.push(`${alert.eventTitle}: ${result.error}`);
-      }
+    if (result.success) {
+      sent++;
     } else {
-      await supabase.from("message_deliveries").insert({
-        alert_candidate_id: alert.candidateId,
-        provider: "console",
-        status: "sent",
-        preview_text: alert.preview,
-        sent_at: new Date().toISOString(),
-      });
-      previewed++;
-      await supabase
-        .from("alert_candidates")
-        .update({ status: "sent" })
-        .eq("id", alert.candidateId);
+      failed++;
+      errors.push(`${pickedAlert.eventTitle}: ${result.error}`);
     }
+  } else {
+    await supabase.from("message_deliveries").insert({
+      alert_candidate_id: pickedAlert.candidateId,
+      provider: "console",
+      status: "sent",
+      preview_text: message,
+      sent_at: new Date().toISOString(),
+    });
+    previewed++;
+  }
+
+  for (const alert of prepared) {
+    await supabase
+      .from("alert_candidates")
+      .update({ status: "sent" })
+      .eq("id", alert.candidateId);
   }
 
   return { sent, previewed, failed, errors, bigStory: bigStory?.headline || null };

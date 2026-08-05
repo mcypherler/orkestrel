@@ -99,7 +99,8 @@ export function matchEvent(input: MatchInput): MatchResult {
   const artistMatch = findArtistMatch(
     event.artist_name,
     event.inspired_artist,
-    followedArtists
+    followedArtists,
+    event.title
   );
   if (artistMatch) {
     score += 40;
@@ -119,6 +120,14 @@ export function matchEvent(input: MatchInput): MatchResult {
     } else {
       reasons.push(`AI matched: ${input.aiMatchedArtist}`);
     }
+  }
+
+  if (
+    (artistMatch || input.aiMatchedArtist) &&
+    (event.event_type === "tribute_concert" || event.event_type === "recurring_experience")
+  ) {
+    score -= 20;
+    warnings.push("Tribute/experience — not the original artist");
   }
 
   const cityMatch = findCityMatch(
@@ -201,6 +210,10 @@ export function matchEvent(input: MatchInput): MatchResult {
   };
 }
 
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[\s\-_.,''&!?()]/g, "");
+}
+
 function findArtistMatch(
   artistName: string | null,
   inspiredArtist: string | null,
@@ -211,7 +224,8 @@ function findArtistMatch(
 
   for (const candidate of candidates) {
     const candidateLower = candidate.toLowerCase();
-    // Exact match first
+    const candidateNorm = normalize(candidate);
+
     const exact = followedArtists.find(
       (a) =>
         a.relationship !== "remove" &&
@@ -219,7 +233,14 @@ function findArtistMatch(
     );
     if (exact) return exact;
 
-    // Word boundary match: artist name appears as whole word(s) in event artist/title
+    const normalized = followedArtists.find(
+      (a) =>
+        a.relationship !== "remove" &&
+        a.name.length >= 3 &&
+        normalize(a.name) === candidateNorm
+    );
+    if (normalized) return normalized;
+
     const boundary = followedArtists.find((a) => {
       if (a.relationship === "remove" || a.name.length < 4) return false;
       const escaped = a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -322,7 +343,8 @@ export async function runMatchingForUser(userId: string): Promise<{
     const regexMatch = findArtistMatch(
       typedEvent.artist_name,
       typedEvent.inspired_artist,
-      followedArtists
+      followedArtists,
+      typedEvent.title
     );
 
     if (regexMatch) {
