@@ -31,12 +31,18 @@ export default function SettingsPage() {
   const [formPostcode, setFormPostcode] = useState("");
   const [formMaxPrice, setFormMaxPrice] = useState("");
   const [formTicketCount, setFormTicketCount] = useState("2");
+  const [formCities, setFormCities] = useState<string[]>([]);
+  const [formRejectRestricted, setFormRejectRestricted] = useState(false);
+  const [formAllowTributes, setFormAllowTributes] = useState(false);
 
   const dirty =
     prefs != null &&
     (formPostcode !== (prefs.home_postcode || "") ||
       formMaxPrice !== (prefs.max_price_gbp != null ? String(prefs.max_price_gbp) : "") ||
-      formTicketCount !== String(prefs.ticket_count));
+      formTicketCount !== String(prefs.ticket_count) ||
+      JSON.stringify(formCities) !== JSON.stringify(prefs.preferred_cities) ||
+      formRejectRestricted !== prefs.reject_restricted_view ||
+      formAllowTributes !== prefs.allow_tributes);
 
   useEffect(() => {
     Promise.all([
@@ -52,46 +58,46 @@ export default function SettingsPage() {
         setFormPostcode(p.home_postcode || "");
         setFormMaxPrice(p.max_price_gbp != null ? String(p.max_price_gbp) : "");
         setFormTicketCount(String(p.ticket_count));
+        setFormCities(p.preferred_cities || []);
+        setFormRejectRestricted(p.reject_restricted_view);
+        setFormAllowTributes(p.allow_tributes);
       }
       setLoading(false);
     });
   }, []);
 
-  async function savePrefs(updates: Partial<Preferences>) {
+  async function handleSave() {
     setSaving(true);
     setSaved(false);
-    const newPrefs = { ...prefs, ...updates } as Preferences;
-    setPrefs(newPrefs);
+    const updates: Partial<Preferences> = {
+      home_postcode: formPostcode || null,
+      max_price_gbp: formMaxPrice ? Number(formMaxPrice) : null,
+      ticket_count: Number(formTicketCount) || 1,
+      preferred_cities: formCities,
+      reject_restricted_view: formRejectRestricted,
+      allow_tributes: formAllowTributes,
+    };
     await fetch("/api/preferences", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
     });
+    setPrefs({ ...prefs, ...updates } as Preferences);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
 
-  async function handleSaveForm() {
-    await savePrefs({
-      home_postcode: formPostcode || null,
-      max_price_gbp: formMaxPrice ? Number(formMaxPrice) : null,
-      ticket_count: Number(formTicketCount) || 1,
-    });
-  }
-
   function addCity() {
-    if (!newCity.trim() || !prefs) return;
-    const cities = [...prefs.preferred_cities, newCity.trim()];
+    if (!newCity.trim()) return;
+    if (!formCities.includes(newCity.trim())) {
+      setFormCities([...formCities, newCity.trim()]);
+    }
     setNewCity("");
-    savePrefs({ preferred_cities: cities });
   }
 
   function removeCity(city: string) {
-    if (!prefs) return;
-    savePrefs({
-      preferred_cities: prefs.preferred_cities.filter((c) => c !== city),
-    });
+    setFormCities(formCities.filter((c) => c !== city));
   }
 
   async function handleDisconnect() {
@@ -156,7 +162,7 @@ export default function SettingsPage() {
               <div className="text-sm">
                 <span className="text-muted">Preferred cities</span>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {prefs.preferred_cities.map((city) => (
+                  {formCities.map((city) => (
                     <span
                       key={city}
                       className="inline-flex items-center gap-1 bg-surface-alt text-sm px-2 py-0.5 rounded"
@@ -215,10 +221,8 @@ export default function SettingsPage() {
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={prefs.reject_restricted_view}
-                  onChange={(e) =>
-                    savePrefs({ reject_restricted_view: e.target.checked })
-                  }
+                  checked={formRejectRestricted}
+                  onChange={(e) => setFormRejectRestricted(e.target.checked)}
                   className="rounded"
                 />
                 <span>Reject restricted/obstructed views</span>
@@ -227,10 +231,8 @@ export default function SettingsPage() {
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={prefs.allow_tributes}
-                  onChange={(e) =>
-                    savePrefs({ allow_tributes: e.target.checked })
-                  }
+                  checked={formAllowTributes}
+                  onChange={(e) => setFormAllowTributes(e.target.checked)}
                   className="rounded"
                 />
                 <span>Include tribute acts and inspired experiences</span>
@@ -238,7 +240,7 @@ export default function SettingsPage() {
 
               <div className="pt-2 flex items-center gap-3">
                 <button
-                  onClick={handleSaveForm}
+                  onClick={handleSave}
                   disabled={saving || !dirty}
                   className="text-sm bg-accent text-white px-4 py-2 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
