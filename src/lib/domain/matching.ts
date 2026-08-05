@@ -159,6 +159,9 @@ export function matchEvent(input: MatchInput): MatchResult {
     warnings.push("Price not supplied — check seller");
   }
 
+  let hasClearView = false;
+  let hasUnknownView = false;
+
   for (const offer of offers) {
     if (
       userPrefs.reject_restricted_view &&
@@ -185,13 +188,16 @@ export function matchEvent(input: MatchInput): MatchResult {
     }
 
     if (offer.seat_quality === "clear") {
+      hasClearView = true;
       score += 10;
     } else if (offer.seat_quality === "unknown") {
-      warnings.push("View not verified");
+      hasUnknownView = true;
     }
   }
 
-  if (offers.length === 0) {
+  if (hasClearView) {
+    // at least one offer has a verified clear view
+  } else if (offers.length === 0 || hasUnknownView) {
     warnings.push("View not verified");
   }
 

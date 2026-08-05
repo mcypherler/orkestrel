@@ -26,5 +26,10 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ alerts: data });
+  const cleaned = (data || []).map((alert) => ({
+    ...alert,
+    warnings: [...new Set(alert.warnings as string[])],
+  }));
+
+  return NextResponse.json({ alerts: cleaned });
 }

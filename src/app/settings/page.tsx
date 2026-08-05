@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Skeleton } from "@/components/loading";
+import { Skeleton, Spinner } from "@/components/loading";
 
 interface User {
   userId: string;
@@ -24,22 +24,42 @@ export default function SettingsPage() {
   const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [newCity, setNewCity] = useState("");
+
+  const [formPostcode, setFormPostcode] = useState("");
+  const [formMaxPrice, setFormMaxPrice] = useState("");
+  const [formTicketCount, setFormTicketCount] = useState("2");
+
+  const dirty =
+    prefs != null &&
+    (formPostcode !== (prefs.home_postcode || "") ||
+      formMaxPrice !== (prefs.max_price_gbp != null ? String(prefs.max_price_gbp) : "") ||
+      formTicketCount !== String(prefs.ticket_count));
 
   useEffect(() => {
     Promise.all([
       fetch("/api/auth/me").then((r) => r.json()),
-      fetch("/api/preferences").then((r) => r.json()).catch(() => ({ preferences: null })),
+      fetch("/api/preferences")
+        .then((r) => r.json())
+        .catch(() => ({ preferences: null })),
     ]).then(([userData, prefsData]) => {
       setUser(userData.user);
-      setPrefs(prefsData.preferences);
+      const p = prefsData.preferences;
+      setPrefs(p);
+      if (p) {
+        setFormPostcode(p.home_postcode || "");
+        setFormMaxPrice(p.max_price_gbp != null ? String(p.max_price_gbp) : "");
+        setFormTicketCount(String(p.ticket_count));
+      }
       setLoading(false);
     });
   }, []);
 
   async function savePrefs(updates: Partial<Preferences>) {
     setSaving(true);
+    setSaved(false);
     const newPrefs = { ...prefs, ...updates } as Preferences;
     setPrefs(newPrefs);
     await fetch("/api/preferences", {
@@ -48,6 +68,16 @@ export default function SettingsPage() {
       body: JSON.stringify(updates),
     });
     setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleSaveForm() {
+    await savePrefs({
+      home_postcode: formPostcode || null,
+      max_price_gbp: formMaxPrice ? Number(formMaxPrice) : null,
+      ticket_count: Number(formTicketCount) || 1,
+    });
   }
 
   function addCity() {
@@ -82,7 +112,19 @@ export default function SettingsPage() {
   }
 
   if (loading) {
-    return (<div className="space-y-6"><Skeleton className="h-7 w-28" /><div className="rounded-lg border border-border bg-surface p-5 space-y-4"><Skeleton className="h-4 w-32" /><Skeleton className="h-9 w-full" /><Skeleton className="h-4 w-32" /><Skeleton className="h-9 w-full" /><Skeleton className="h-4 w-32" /><Skeleton className="h-9 w-24" /></div></div>);
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-7 w-28" />
+        <div className="rounded-lg border border-border bg-surface p-5 space-y-4">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-9 w-24" />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -97,22 +139,15 @@ export default function SettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {prefs && (
           <div className="rounded-lg border border-border bg-surface p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-medium">Event preferences</h2>
-              {saving && (
-                <span className="text-xs text-muted">Saving...</span>
-              )}
-            </div>
+            <h2 className="font-medium">Event preferences</h2>
 
             <div className="space-y-3">
               <label className="block text-sm">
                 <span className="text-muted">Home postcode</span>
                 <input
                   type="text"
-                  value={prefs.home_postcode || ""}
-                  onChange={(e) =>
-                    savePrefs({ home_postcode: e.target.value || null })
-                  }
+                  value={formPostcode}
+                  onChange={(e) => setFormPostcode(e.target.value)}
                   className="mt-1 block w-full text-sm border border-border rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30"
                   placeholder="BH14"
                 />
@@ -158,14 +193,8 @@ export default function SettingsPage() {
                 <span className="text-muted">Max price per person (&pound;)</span>
                 <input
                   type="number"
-                  value={prefs.max_price_gbp ?? ""}
-                  onChange={(e) =>
-                    savePrefs({
-                      max_price_gbp: e.target.value
-                        ? Number(e.target.value)
-                        : null,
-                    })
-                  }
+                  value={formMaxPrice}
+                  onChange={(e) => setFormMaxPrice(e.target.value)}
                   className="mt-1 block w-full text-sm border border-border rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30"
                   placeholder="50"
                 />
@@ -177,10 +206,8 @@ export default function SettingsPage() {
                   type="number"
                   min={1}
                   max={10}
-                  value={prefs.ticket_count}
-                  onChange={(e) =>
-                    savePrefs({ ticket_count: Number(e.target.value) || 1 })
-                  }
+                  value={formTicketCount}
+                  onChange={(e) => setFormTicketCount(e.target.value)}
                   className="mt-1 block w-full text-sm border border-border rounded-lg px-3 py-2 bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
               </label>
@@ -208,6 +235,28 @@ export default function SettingsPage() {
                 />
                 <span>Include tribute acts and inspired experiences</span>
               </label>
+
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  onClick={handleSaveForm}
+                  disabled={saving || !dirty}
+                  className="text-sm bg-accent text-white px-4 py-2 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {saving ? (
+                    <>
+                      <Spinner size={14} /> Saving...
+                    </>
+                  ) : (
+                    "Save preferences"
+                  )}
+                </button>
+                {saved && (
+                  <span className="text-sm text-success">Saved</span>
+                )}
+                {dirty && !saving && (
+                  <span className="text-xs text-muted">Unsaved changes</span>
+                )}
+              </div>
             </div>
           </div>
         )}
