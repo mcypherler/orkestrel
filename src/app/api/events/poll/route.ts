@@ -46,15 +46,11 @@ export async function POST(request: NextRequest) {
   const { events, tmError } = await fetchEvents(cities, artistNames);
   const result = await ingestEvents(events);
 
-  const tmCount = events.filter((e: { provider: string }) => e.provider === "ticketmaster").length;
-  const mockCount = events.filter((e: { provider: string }) => e.provider === "mock").length;
-
   return NextResponse.json({
     ...result,
     total_fetched: events.length,
     searched_cities: cities,
-    sources: { ticketmaster: tmCount, mock: mockCount },
-    mode: process.env.EVENT_SOURCE_MODE || "hybrid",
+    sources: { ticketmaster: events.length },
     ticketmaster_configured: !!process.env.TICKETMASTER_API_KEY,
     tm_error: tmError,
     timestamp: new Date().toISOString(),

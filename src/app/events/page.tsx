@@ -23,7 +23,6 @@ interface Event {
   venue_city: string | null;
   starts_at: string | null;
   official_url: string | null;
-  is_mock: boolean;
   provider: string;
   observed_at: string;
   event_offers: EventOffer[];
@@ -59,7 +58,7 @@ export default function EventsPage() {
       ? ` · Searched: ${data.searched_cities.join(", ")}`
       : "";
     const src = data.sources
-      ? ` (TM: ${data.sources.ticketmaster}, mock: ${data.sources.mock})`
+      ? ` (${data.sources.ticketmaster} from Ticketmaster)`
       : "";
     const tmNote = data.ticketmaster_configured === false
       ? " · TICKETMASTER_API_KEY not set!"
@@ -161,11 +160,6 @@ function EventCard({ event }: { event: Event }) {
             >
               {typeLabel}
             </span>
-            {event.is_mock && (
-              <span className="text-xs font-mono bg-coral/10 text-coral px-1.5 py-0.5 rounded">
-                Demo data
-              </span>
-            )}
             <span className="text-xs text-muted font-mono">{event.provider}</span>
           </div>
 

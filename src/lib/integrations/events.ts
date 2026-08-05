@@ -1,72 +1,52 @@
 import type { NormalizedEvent } from "@/lib/integrations/ticketmaster";
 import { fetchTicketmasterEvents } from "@/lib/integrations/ticketmaster";
-import { MOCK_EVENTS } from "@/lib/fixtures/mock-events";
-
-type SourceMode = "ticketmaster" | "mock" | "hybrid";
-
-function getSourceMode(): SourceMode {
-  const mode = process.env.EVENT_SOURCE_MODE || "hybrid";
-  if (mode === "ticketmaster" || mode === "mock" || mode === "hybrid")
-    return mode;
-  return "hybrid";
-}
 
 export async function fetchEvents(
   cities: string[],
   artistNames?: string[]
 ): Promise<{ events: NormalizedEvent[]; tmError: string | null }> {
-  const mode = getSourceMode();
   const events: NormalizedEvent[] = [];
   const seenIds = new Set<string>();
 
   let tmError: string | null = null;
-  if (mode === "ticketmaster" || mode === "hybrid") {
-    try {
-      const result = await fetchTicketmasterEvents(cities, 30);
-      for (const ev of result.events) {
-        if (!seenIds.has(ev.provider_event_id)) {
-          seenIds.add(ev.provider_event_id);
-          events.push(ev);
-        }
-      }
-      if (result.errors.length > 0) {
-        tmError = result.errors.join("; ");
-      }
-    } catch (err) {
-      tmError = String(err);
-      console.error("Ticketmaster fetch failed:", err);
-    }
-
-    if (artistNames && artistNames.length > 0) {
-      const batches: string[][] = [];
-      for (let i = 0; i < artistNames.length; i += 5) {
-        batches.push(artistNames.slice(i, i + 5));
-      }
-      const maxBatches = Math.min(batches.length, 4);
-      for (let i = 0; i < maxBatches; i++) {
-        try {
-          const result = await fetchTicketmasterEvents(
-            cities.length > 0 ? cities : ["London"],
-            50,
-            batches[i]
-          );
-          for (const ev of result.events) {
-            if (!seenIds.has(ev.provider_event_id)) {
-              seenIds.add(ev.provider_event_id);
-              events.push(ev);
-            }
-          }
-        } catch {
-          // artist-specific search is supplementary; failures are acceptable
-        }
+  try {
+    const result = await fetchTicketmasterEvents(cities, 30);
+    for (const ev of result.events) {
+      if (!seenIds.has(ev.provider_event_id)) {
+        seenIds.add(ev.provider_event_id);
+        events.push(ev);
       }
     }
+    if (result.errors.length > 0) {
+      tmError = result.errors.join("; ");
+    }
+  } catch (err) {
+    tmError = String(err);
+    console.error("Ticketmaster fetch failed:", err);
   }
 
-  if (mode === "mock" || mode === "hybrid") {
-    const mockEnabled = process.env.MOCK_DATA_ENABLED !== "false";
-    if (mockEnabled) {
-      events.push(...MOCK_EVENTS);
+  if (artistNames && artistNames.length > 0) {
+    const batches: string[][] = [];
+    for (let i = 0; i < artistNames.length; i += 5) {
+      batches.push(artistNames.slice(i, i + 5));
+    }
+    const maxBatches = Math.min(batches.length, 4);
+    for (let i = 0; i < maxBatches; i++) {
+      try {
+        const result = await fetchTicketmasterEvents(
+          cities.length > 0 ? cities : ["London"],
+          50,
+          batches[i]
+        );
+        for (const ev of result.events) {
+          if (!seenIds.has(ev.provider_event_id)) {
+            seenIds.add(ev.provider_event_id);
+            events.push(ev);
+          }
+        }
+      } catch {
+        // artist-specific search is supplementary; failures are acceptable
+      }
     }
   }
 
@@ -148,7 +128,6 @@ export async function ingestEvents(
           timezone: event.timezone,
           official_url: event.official_url,
           image_url: event.image_url,
-          is_mock: event.is_mock,
           source_payload: event.source_payload,
           observed_at: event.observed_at,
         })

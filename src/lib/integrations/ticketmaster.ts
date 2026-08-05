@@ -15,7 +15,6 @@ export interface NormalizedEvent {
   timezone: string;
   official_url: string | null;
   image_url: string | null;
-  is_mock: boolean;
   source_payload: Record<string, unknown> | null;
   observed_at: string;
   offers: NormalizedOffer[];
@@ -246,7 +245,6 @@ function normalizeTicketmasterEvent(
     timezone: (dates?.timezone as string) || "Europe/London",
     official_url: (tm.url as string) || null,
     image_url: images.length > 0 ? (images[0].url as string) : null,
-    is_mock: false,
     source_payload: tm as Record<string, unknown>,
     observed_at: new Date().toISOString(),
     offers,

@@ -14,7 +14,6 @@ interface AlertData {
   matchReasons: string[];
   warnings: string[];
   officialUrl: string | null;
-  isMock: boolean;
 }
 
 export function formatAlertPreview(data: AlertData): string {
@@ -56,10 +55,6 @@ export function formatAlertPreview(data: AlertData): string {
   }
 
   lines.push("Availability and fees can change — check seller");
-
-  if (data.isMock) {
-    lines.push("⚠️ Demo data — cannot be purchased");
-  }
 
   if (data.officialUrl) {
     lines.push(`Book: ${data.officialUrl}`);
@@ -200,7 +195,6 @@ interface PreparedAlert {
   reasons: string[];
   priceLabel: string;
   preview: string;
-  isMock: boolean;
 }
 
 export async function deliverAlerts(userId: string): Promise<{
@@ -213,7 +207,6 @@ export async function deliverAlerts(userId: string): Promise<{
   const supabase = createServerClient();
   const provider = process.env.WHATSAPP_PROVIDER || "console";
   const alertsEnabled = process.env.ALERTS_ENABLED === "true";
-  const isProduction = process.env.NODE_ENV === "production";
 
   const { data: candidates } = await supabase
     .from("alert_candidates")
@@ -233,10 +226,6 @@ export async function deliverAlerts(userId: string): Promise<{
     if (!event) continue;
 
     const offers = (event.event_offers || []) as Record<string, unknown>[];
-
-    if ((event.is_mock as boolean) && isProduction) {
-      continue;
-    }
 
     const priceLabel = buildPriceLabel(
       offers.map((o) => ({
@@ -263,7 +252,6 @@ export async function deliverAlerts(userId: string): Promise<{
       matchReasons: (candidate.reasons as string[]) || [],
       warnings: (candidate.warnings as string[]) || [],
       officialUrl: event.official_url as string | null,
-      isMock: event.is_mock as boolean,
     };
 
     prepared.push({
@@ -278,7 +266,6 @@ export async function deliverAlerts(userId: string): Promise<{
       reasons: (candidate.reasons as string[]) || [],
       priceLabel,
       preview: formatAlertPreview(alertData),
-      isMock: event.is_mock as boolean,
     });
   }
 
@@ -316,7 +303,7 @@ export async function deliverAlerts(userId: string): Promise<{
   const errors: string[] = [];
 
   for (const alert of ordered) {
-    if (provider === "twilio" && alertsEnabled && !alert.isMock) {
+    if (provider === "twilio" && alertsEnabled) {
       const result = await sendViaTwilio(alert.preview);
 
       await supabase.from("message_deliveries").insert({

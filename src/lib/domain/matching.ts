@@ -13,7 +13,6 @@ interface MatchEvent {
   venue_city: string | null;
   starts_at: string | null;
   official_url: string | null;
-  is_mock: boolean;
   observed_at: string;
 }
 

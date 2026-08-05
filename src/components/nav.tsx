@@ -78,9 +78,6 @@ export default function Nav() {
               <span className="font-semibold text-lg tracking-tight">
                 Orkestrel
               </span>
-              <span className="text-xs text-muted font-mono bg-surface-alt px-2 py-0.5 rounded">
-                prototype
-              </span>
             </div>
             <div className="hidden sm:flex items-center gap-4 text-sm">
               {links.map((link) => (

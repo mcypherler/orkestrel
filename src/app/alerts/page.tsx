@@ -21,7 +21,6 @@ interface AlertCandidate {
     venue_city: string | null;
     starts_at: string | null;
     official_url: string | null;
-    is_mock: boolean;
   };
   message_deliveries: {
     id: string;
@@ -207,11 +206,6 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
             <span className="text-xs text-muted font-mono">
               Score {alert.score}
             </span>
-            {event?.is_mock && (
-              <span className="text-xs font-mono bg-coral/10 text-coral px-1.5 py-0.5 rounded">
-                Demo
-              </span>
-            )}
           </div>
           <h3 className="font-medium">{event?.title || "Unknown event"}</h3>
           <p className="text-sm text-muted">

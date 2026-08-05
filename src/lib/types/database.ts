@@ -75,7 +75,6 @@ type EventsInsert = {
   timezone?: string;
   official_url?: string | null;
   image_url?: string | null;
-  is_mock?: boolean;
   source_payload?: Record<string, unknown> | null;
   observed_at?: string;
 };
@@ -216,7 +215,6 @@ export interface Database {
           timezone: string;
           official_url: string | null;
           image_url: string | null;
-          is_mock: boolean;
           source_payload: Record<string, unknown> | null;
           observed_at: string;
           created_at: string;

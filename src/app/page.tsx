@@ -16,7 +16,6 @@ interface FeaturedMatch {
     starts_at: string | null;
     official_url: string | null;
     event_type: string;
-    is_mock: boolean;
     event_offers: {
       price_amount: number | null;
       price_currency: string;
@@ -257,11 +256,6 @@ function FeaturedCard({ match }: { match: FeaturedMatch }) {
             {event.venue_city && ` · ${event.venue_city}`}
           </p>
         </div>
-        {event.is_mock && (
-          <span className="text-xs font-mono bg-coral/10 text-coral px-1.5 py-0.5 rounded flex-shrink-0">
-            Demo
-          </span>
-        )}
       </div>
       <div className="flex items-center gap-3 text-sm">
         <span className="text-muted">{dateLabel}</span>
