@@ -157,37 +157,38 @@ export default function AlertsPage() {
   const activeFilters = (typeFilter !== "all" ? 1 : 0) + (cityFilter !== "all" ? 1 : 0) + (monthFilter !== "all" ? 1 : 0);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Alerts</h1>
-          <p className="text-muted mt-1">
-            {alerts.length} total · {eligible.length} eligible · {sent.length}{" "}
-            sent · {watching.length} watching
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleMatch}
-            disabled={matching}
-            className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
-          >
-            {matching ? <><Spinner /> Matching...</> : "Run matching"}
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={sending || eligible.length === 0}
-            className="text-sm bg-surface border border-border px-3 py-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
-          >
-            {sending ? <><Spinner /> Sending...</> : "Send alerts"}
-          </button>
-          <button
-            onClick={handleTestAlert}
-            disabled={testing}
-            className="text-sm text-muted border border-border px-3 py-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
-          >
-            {testing ? <><Spinner /> Testing...</> : "Test alert"}
-          </button>
+    <div className="space-y-5">
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Alerts</h1>
+            <p className="text-muted mt-1 text-sm">
+              {alerts.length} total · {eligible.length} eligible · {sent.length} sent · {watching.length} watching
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleMatch}
+              disabled={matching}
+              className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {matching ? <><Spinner /> Matching...</> : "Run matching"}
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={sending || eligible.length === 0}
+              className="text-sm bg-surface border border-border px-3 py-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {sending ? <><Spinner /> Sending...</> : "Send alerts"}
+            </button>
+            <button
+              onClick={handleTestAlert}
+              disabled={testing}
+              className="text-sm text-muted border border-border px-3 py-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+            >
+              {testing ? <><Spinner /> Testing...</> : "Test alert"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -199,10 +200,10 @@ export default function AlertsPage() {
 
       {alerts.length > 0 && (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="space-y-2">
             <FilterRow label="Type">
               <Pill active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>All</Pill>
-              <Pill active={typeFilter === "original"} onClick={() => setTypeFilter("original")}>Original artist</Pill>
+              <Pill active={typeFilter === "original"} onClick={() => setTypeFilter("original")}>Original</Pill>
               <Pill active={typeFilter === "tribute"} onClick={() => setTypeFilter("tribute")}>Tribute</Pill>
             </FilterRow>
 
@@ -228,14 +229,12 @@ export default function AlertsPage() {
           {activeFilters > 0 && (
             <p className="text-xs text-muted">
               Showing {filtered.length} of {alerts.length} alerts
-              {activeFilters > 0 && (
-                <button
-                  onClick={() => { setTypeFilter("all"); setCityFilter("all"); setMonthFilter("all"); }}
-                  className="ml-2 text-accent hover:text-accent-hover"
-                >
-                  Clear filters
-                </button>
-              )}
+              <button
+                onClick={() => { setTypeFilter("all"); setCityFilter("all"); setMonthFilter("all"); }}
+                className="ml-2 text-accent hover:text-accent-hover"
+              >
+                Clear filters
+              </button>
             </p>
           )}
         </div>
@@ -266,8 +265,8 @@ export default function AlertsPage() {
 
 function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-xs text-muted font-mono uppercase tracking-wider mr-1">{label}</span>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-xs text-muted font-mono uppercase tracking-wider mr-1 shrink-0">{label}</span>
       <div className="flex flex-wrap gap-1">{children}</div>
     </div>
   );
@@ -291,7 +290,7 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
 function AlertCard({ alert }: { alert: AlertCandidate }) {
   const [showPreview, setShowPreview] = useState(false);
   const event = alert.events;
-  const delivery = alert.message_deliveries[0];
+  const delivery = alert.message_deliveries?.[0];
 
   const isTribute = event?.event_type === "tribute_concert" || event?.event_type === "recurring_experience";
 
@@ -313,7 +312,7 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
     <div className="rounded-lg border border-border bg-surface p-4 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <span
               className={`text-xs font-mono px-1.5 py-0.5 rounded ${
                 statusColors[alert.status] || "bg-surface-alt text-muted"
@@ -334,9 +333,19 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
           <p className="text-sm text-muted">
             {event?.venue_name}
             {event?.venue_city && ` · ${event.venue_city}`}
-            {event?.starts_at && ` · ${new Date(event.starts_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
+            {event?.starts_at && ` · ${new Date(event.starts_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`}
           </p>
         </div>
+        {event?.official_url && (
+          <a
+            href={event.official_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-xs bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors"
+          >
+            Tickets
+          </a>
+        )}
       </div>
 
       {alert.reasons.length > 0 && (
@@ -371,12 +380,14 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
             onClick={() => setShowPreview(!showPreview)}
             className="text-xs text-muted hover:text-foreground transition-colors"
           >
-            {showPreview ? "Hide preview" : "Show preview"}
+            {showPreview ? "Hide preview" : "Show alert preview"}
           </button>
           {showPreview && (
-            <pre className="mt-2 text-xs bg-surface-alt rounded-lg p-3 whitespace-pre-wrap font-mono overflow-x-auto">
-              {delivery.preview_text}
-            </pre>
+            <div className="mt-2 text-sm bg-surface-alt rounded-lg p-3 space-y-1.5">
+              {delivery.preview_text.split("\n").map((line, i) => (
+                <p key={i} className={line === "" ? "h-2" : ""}>{line}</p>
+              ))}
+            </div>
           )}
         </div>
       )}
