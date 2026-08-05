@@ -213,6 +213,109 @@ export async function classifyArtistMatchBatchCached(
   return results as ArtistMatchResponse[];
 }
 
+export interface BigStoryCandidate {
+  index: number;
+  title: string;
+  artistName: string | null;
+  eventType: string;
+  venueName: string | null;
+  venueCity: string | null;
+  startsAt: string | null;
+  score: number;
+  reasons: string[];
+  priceLabel: string;
+}
+
+export interface BigStoryResult {
+  pickedIndex: number;
+  headline: string;
+  reasoning: string;
+}
+
+export async function pickBigStory(
+  candidates: BigStoryCandidate[]
+): Promise<BigStoryResult | null> {
+  const apiKey = process.env.OPENAI_API_SECRET;
+  if (!apiKey || candidates.length === 0) return null;
+
+  if (candidates.length === 1) {
+    return {
+      pickedIndex: candidates[0].index,
+      headline: candidates[0].title,
+      reasoning: "Only eligible alert",
+    };
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const eventSummaries = candidates
+    .map((c, i) => {
+      const parts = [
+        `[${i}] "${c.title}"`,
+        c.artistName && `  Artist: ${c.artistName}`,
+        `  Type: ${c.eventType}`,
+        c.venueName && `  Venue: ${c.venueName}${c.venueCity ? `, ${c.venueCity}` : ""}`,
+        c.startsAt && `  Date: ${c.startsAt}`,
+        `  Price: ${c.priceLabel}`,
+        `  Match score: ${c.score}, reasons: ${c.reasons.join("; ")}`,
+      ];
+      return parts.filter(Boolean).join("\n");
+    })
+    .join("\n\n");
+
+  const res = await fetch(OPENAI_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      temperature: 0,
+      max_tokens: 200,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You help fans never miss seeing their favourite artists live. Pick the single alert they need to act on most urgently.
+
+Rank by these factors (most to least important):
+1. URGENCY — tickets going on sale imminently, event date approaching fast, or limited availability. The fan might miss out if they don't act today.
+2. Original artist performing live — especially a rare tour, comeback, reunion, or one-off show. These are once-in-a-lifetime moments.
+3. Proximity — event is in or near the user's preferred cities (check venue/city).
+4. Match strength — higher score and direct artist match over AI-inferred match.
+5. Value — affordable tickets for a big act are more exciting than expensive ones.
+
+Tributes and experiences are only the lead story if there is genuinely nothing else.
+Today's date is ${today}. Events happening within 30 days are significantly more urgent. Events where tickets just went on sale are the most time-sensitive — they sell out.
+
+Respond with JSON: {"pickedIndex": number, "headline": string (max 80 chars — urgent, personal, as if texting a friend who might miss out, e.g. "Coldplay tickets just dropped — your city, next month!" or "Don't sleep on this — Radiohead are back!"), "reasoning": string (max 30 words)}`,
+        },
+        {
+          role: "user",
+          content: `Pick the single most interesting alert to lead with:\n\n${eventSummaries}`,
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) return null;
+
+  try {
+    const parsed = JSON.parse(content) as BigStoryResult;
+    if (parsed.pickedIndex >= 0 && parsed.pickedIndex < candidates.length) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function classifyBatchRaw(
   events: ArtistMatchRequest[]
 ): Promise<ArtistMatchResponse[]> {

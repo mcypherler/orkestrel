@@ -72,6 +72,9 @@ export default function AlertsPage() {
     const res = await fetch("/api/alerts/send", { method: "POST" });
     const data = await res.json();
     let msg = `Sent ${data.sent}, previewed ${data.previewed}, failed ${data.failed}`;
+    if (data.bigStory) {
+      msg += ` · Big story: ${data.bigStory}`;
+    }
     if (data.errors?.length > 0) {
       msg += ` — ${data.errors.join("; ")}`;
     }

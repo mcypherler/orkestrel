@@ -1,4 +1,5 @@
 import { createServerClient } from "@/lib/supabase/server";
+import { pickBigStory } from "@/lib/integrations/openai";
 
 interface AlertData {
   candidateId: string;
@@ -187,11 +188,27 @@ export async function sendTestAlert(): Promise<{
   return { success: result.success, error: result.error };
 }
 
+interface PreparedAlert {
+  candidateId: string;
+  eventTitle: string;
+  artistName: string | null;
+  eventType: string;
+  venueName: string | null;
+  venueCity: string | null;
+  startsAt: string | null;
+  score: number;
+  reasons: string[];
+  priceLabel: string;
+  preview: string;
+  isMock: boolean;
+}
+
 export async function deliverAlerts(userId: string): Promise<{
   sent: number;
   previewed: number;
   failed: number;
   errors: string[];
+  bigStory: string | null;
 }> {
   const supabase = createServerClient();
   const provider = process.env.WHATSAPP_PROVIDER || "console";
@@ -206,13 +223,10 @@ export async function deliverAlerts(userId: string): Promise<{
     .order("score", { ascending: false });
 
   if (!candidates || candidates.length === 0) {
-    return { sent: 0, previewed: 0, failed: 0, errors: [] };
+    return { sent: 0, previewed: 0, failed: 0, errors: [], bigStory: null };
   }
 
-  let sent = 0;
-  let previewed = 0;
-  let failed = 0;
-  const errors: string[] = [];
+  const prepared: PreparedAlert[] = [];
 
   for (const candidate of candidates) {
     const event = candidate.events as Record<string, unknown>;
@@ -224,6 +238,13 @@ export async function deliverAlerts(userId: string): Promise<{
       continue;
     }
 
+    const priceLabel = buildPriceLabel(
+      offers.map((o) => ({
+        price_amount: o.price_amount as number | null,
+        price_type: o.price_type as string | null,
+      }))
+    );
+
     const alertData: AlertData = {
       candidateId: candidate.id as string,
       title: event.title as string,
@@ -232,12 +253,7 @@ export async function deliverAlerts(userId: string): Promise<{
       venueName: event.venue_name as string | null,
       venueCity: event.venue_city as string | null,
       startsAt: event.starts_at as string | null,
-      priceLabel: buildPriceLabel(
-        offers.map((o) => ({
-          price_amount: o.price_amount as number | null,
-          price_type: o.price_type as string | null,
-        }))
-      ),
+      priceLabel,
       seatNote: buildSeatNote(
         offers.map((o) => ({
           seat_quality: o.seat_quality as string,
@@ -250,18 +266,66 @@ export async function deliverAlerts(userId: string): Promise<{
       isMock: event.is_mock as boolean,
     };
 
-    const preview = formatAlertPreview(alertData);
+    prepared.push({
+      candidateId: candidate.id as string,
+      eventTitle: event.title as string,
+      artistName: event.artist_name as string | null,
+      eventType: event.event_type as string,
+      venueName: event.venue_name as string | null,
+      venueCity: event.venue_city as string | null,
+      startsAt: event.starts_at as string | null,
+      score: (candidate.score as number) || 0,
+      reasons: (candidate.reasons as string[]) || [],
+      priceLabel,
+      preview: formatAlertPreview(alertData),
+      isMock: event.is_mock as boolean,
+    });
+  }
 
-    if (provider === "twilio" && alertsEnabled && !(event.is_mock as boolean)) {
-      const result = await sendViaTwilio(preview);
+  if (prepared.length === 0) {
+    return { sent: 0, previewed: 0, failed: 0, errors: [], bigStory: null };
+  }
+
+  // Ask OpenAI to pick the big story of the day
+  const bigStory = await pickBigStory(
+    prepared.map((p, i) => ({
+      index: i,
+      title: p.eventTitle,
+      artistName: p.artistName,
+      eventType: p.eventType,
+      venueName: p.venueName,
+      venueCity: p.venueCity,
+      startsAt: p.startsAt,
+      score: p.score,
+      reasons: p.reasons,
+      priceLabel: p.priceLabel,
+    }))
+  );
+
+  // Reorder: big story first, then the rest
+  const ordered = [...prepared];
+  if (bigStory && bigStory.pickedIndex < ordered.length) {
+    const [picked] = ordered.splice(bigStory.pickedIndex, 1);
+    picked.preview = `⭐ Today's pick: ${bigStory.headline}\n\n${picked.preview}`;
+    ordered.unshift(picked);
+  }
+
+  let sent = 0;
+  let previewed = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const alert of ordered) {
+    if (provider === "twilio" && alertsEnabled && !alert.isMock) {
+      const result = await sendViaTwilio(alert.preview);
 
       await supabase.from("message_deliveries").insert({
-        alert_candidate_id: candidate.id,
+        alert_candidate_id: alert.candidateId,
         provider: "twilio",
         provider_message_id: result.messageId || null,
         recipient: process.env.WHATSAPP_RECIPIENT || null,
         status: result.success ? "sent" : "failed",
-        preview_text: preview,
+        preview_text: alert.preview,
         sent_at: result.success ? new Date().toISOString() : null,
         error_message: result.error || null,
       });
@@ -271,26 +335,26 @@ export async function deliverAlerts(userId: string): Promise<{
         await supabase
           .from("alert_candidates")
           .update({ status: "sent" })
-          .eq("id", candidate.id);
+          .eq("id", alert.candidateId);
       } else {
         failed++;
-        errors.push(`${event.title}: ${result.error}`);
+        errors.push(`${alert.eventTitle}: ${result.error}`);
       }
     } else {
       await supabase.from("message_deliveries").insert({
-        alert_candidate_id: candidate.id,
+        alert_candidate_id: alert.candidateId,
         provider: "console",
         status: "sent",
-        preview_text: preview,
+        preview_text: alert.preview,
         sent_at: new Date().toISOString(),
       });
       previewed++;
       await supabase
         .from("alert_candidates")
         .update({ status: "sent" })
-        .eq("id", candidate.id);
+        .eq("id", alert.candidateId);
     }
   }
 
-  return { sent, previewed, failed, errors };
+  return { sent, previewed, failed, errors, bigStory: bigStory?.headline || null };
 }
