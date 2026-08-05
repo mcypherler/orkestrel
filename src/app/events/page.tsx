@@ -31,6 +31,7 @@ interface Event {
 
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
+  const [filteredBy, setFilteredBy] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [polling, setPolling] = useState(false);
   const [pollResult, setPollResult] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export default function EventsPage() {
     if (res.ok) {
       const data = await res.json();
       setEvents(data.events || []);
+      setFilteredBy(data.filtered_by || null);
     }
     setLoading(false);
   }, []);
@@ -53,6 +55,9 @@ export default function EventsPage() {
     setPollResult(null);
     const res = await fetch("/api/events/poll", { method: "POST" });
     const data = await res.json();
+    const citiesNote = data.searched_cities?.length
+      ? ` · Searched: ${data.searched_cities.join(", ")}`
+      : "";
     const src = data.sources
       ? ` (TM: ${data.sources.ticketmaster}, mock: ${data.sources.mock})`
       : "";
@@ -62,7 +67,7 @@ export default function EventsPage() {
         ? ` · TM error: ${data.tm_error}`
         : "";
     setPollResult(
-      `Fetched ${data.total_fetched}${src}, created ${data.created}, updated ${data.updated}, duplicates ${data.duplicates}${tmNote}`
+      `Fetched ${data.total_fetched}${src}, created ${data.created}, updated ${data.updated}, duplicates ${data.duplicates}${citiesNote}${tmNote}`
     );
     await fetchEvents();
     setPolling(false);
@@ -78,8 +83,8 @@ export default function EventsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
           <p className="text-muted mt-1">
-            {events.length} event{events.length !== 1 ? "s" : ""} from
-            Ticketmaster and fixtures.
+            {events.length} event{events.length !== 1 ? "s" : ""}
+            {filteredBy ? ` in ${filteredBy.join(", ")}` : " from all locations"}.
           </p>
         </div>
         <button

@@ -117,6 +117,11 @@ export async function fetchTicketmasterEvents(
 
     const geoPoint = toGeohash(geo.lat, geo.lng);
 
+    const perCitySize = Math.min(
+      Math.max(Math.floor(200 / cities.length), 20),
+      100
+    );
+
     const params = new URLSearchParams({
       apikey: apiKey,
       countryCode: "GB",
@@ -125,8 +130,8 @@ export async function fetchTicketmasterEvents(
       radius: String(radiusMiles),
       unit: "miles",
       startDateTime: now,
-      sort: "date,asc",
-      size: "50",
+      sort: "relevance,desc",
+      size: String(perCitySize),
     });
 
     if (artistNames && artistNames.length > 0) {

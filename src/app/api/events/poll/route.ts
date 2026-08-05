@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     ...result,
     total_fetched: events.length,
+    searched_cities: cities,
     sources: { ticketmaster: tmCount, mock: mockCount },
     mode: process.env.EVENT_SOURCE_MODE || "hybrid",
     ticketmaster_configured: !!process.env.TICKETMASTER_API_KEY,
