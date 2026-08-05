@@ -67,7 +67,7 @@ export default function Nav() {
       <nav className="border-b border-border relative z-50">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
+            <Link href="/" className="flex items-center gap-2">
               <Image
                 src="/logo.png"
                 alt="Orkestrel"
@@ -78,7 +78,7 @@ export default function Nav() {
               <span className="font-semibold text-lg tracking-tight">
                 Orkestrel
               </span>
-            </div>
+            </Link>
             <div className="hidden sm:flex items-center gap-4 text-sm">
               {links.map((link) => (
                 <Link
