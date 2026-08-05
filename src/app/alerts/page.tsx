@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { CardSkeleton, Skeleton, Spinner } from "@/components/loading";
 
 interface AlertCandidate {
@@ -31,6 +31,13 @@ interface AlertCandidate {
   }[];
 }
 
+function getMonth(dateStr: string | null): string | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
+
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertCandidate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +45,10 @@ export default function AlertsPage() {
   const [sending, setSending] = useState(false);
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+
+  const [typeFilter, setTypeFilter] = useState<"all" | "original" | "tribute">("all");
+  const [cityFilter, setCityFilter] = useState<string>("all");
+  const [monthFilter, setMonthFilter] = useState<string>("all");
 
   const fetchAlerts = useCallback(async () => {
     const res = await fetch("/api/alerts");
@@ -51,6 +62,37 @@ export default function AlertsPage() {
   useEffect(() => {
     fetchAlerts();
   }, [fetchAlerts]);
+
+  const cities = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of alerts) {
+      if (a.events?.venue_city) set.add(a.events.venue_city);
+    }
+    return Array.from(set).sort();
+  }, [alerts]);
+
+  const months = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of alerts) {
+      const m = getMonth(a.events?.starts_at);
+      if (m) set.add(m);
+    }
+    return Array.from(set).sort((a, b) => {
+      const da = new Date("1 " + a);
+      const db = new Date("1 " + b);
+      return da.getTime() - db.getTime();
+    });
+  }, [alerts]);
+
+  const filtered = useMemo(() => {
+    return alerts.filter((a) => {
+      if (typeFilter === "original" && (a.events?.event_type === "tribute_concert" || a.events?.event_type === "recurring_experience")) return false;
+      if (typeFilter === "tribute" && a.events?.event_type !== "tribute_concert" && a.events?.event_type !== "recurring_experience") return false;
+      if (cityFilter !== "all" && a.events?.venue_city !== cityFilter) return false;
+      if (monthFilter !== "all" && getMonth(a.events?.starts_at) !== monthFilter) return false;
+      return true;
+    });
+  }, [alerts, typeFilter, cityFilter, monthFilter]);
 
   async function handleMatch() {
     setMatching(true);
@@ -112,7 +154,7 @@ export default function AlertsPage() {
   const eligible = alerts.filter((a) => a.status === "eligible");
   const sent = alerts.filter((a) => a.status === "sent");
   const watching = alerts.filter((a) => a.status === "watching_for_dates");
-  const rejected = alerts.filter((a) => a.status === "rejected");
+  const activeFilters = (typeFilter !== "all" ? 1 : 0) + (cityFilter !== "all" ? 1 : 0) + (monthFilter !== "all" ? 1 : 0);
 
   return (
     <div className="space-y-6">
@@ -155,15 +197,65 @@ export default function AlertsPage() {
         </div>
       )}
 
+      {alerts.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <FilterRow label="Type">
+              <Pill active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>All</Pill>
+              <Pill active={typeFilter === "original"} onClick={() => setTypeFilter("original")}>Original artist</Pill>
+              <Pill active={typeFilter === "tribute"} onClick={() => setTypeFilter("tribute")}>Tribute</Pill>
+            </FilterRow>
+
+            {cities.length > 1 && (
+              <FilterRow label="Location">
+                <Pill active={cityFilter === "all"} onClick={() => setCityFilter("all")}>All</Pill>
+                {cities.map((c) => (
+                  <Pill key={c} active={cityFilter === c} onClick={() => setCityFilter(c)}>{c}</Pill>
+                ))}
+              </FilterRow>
+            )}
+
+            {months.length > 1 && (
+              <FilterRow label="Month">
+                <Pill active={monthFilter === "all"} onClick={() => setMonthFilter("all")}>All</Pill>
+                {months.map((m) => (
+                  <Pill key={m} active={monthFilter === m} onClick={() => setMonthFilter(m)}>{m}</Pill>
+                ))}
+              </FilterRow>
+            )}
+          </div>
+
+          {activeFilters > 0 && (
+            <p className="text-xs text-muted">
+              Showing {filtered.length} of {alerts.length} alerts
+              {activeFilters > 0 && (
+                <button
+                  onClick={() => { setTypeFilter("all"); setCityFilter("all"); setMonthFilter("all"); }}
+                  className="ml-2 text-accent hover:text-accent-hover"
+                >
+                  Clear filters
+                </button>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
       {alerts.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center">
           <p className="text-muted">
             No alerts yet. Import events and run matching to generate candidates.
           </p>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface p-8 text-center">
+          <p className="text-muted">
+            No alerts match your filters.
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
-          {alerts.map((alert) => (
+          {filtered.map((alert) => (
             <AlertCard key={alert.id} alert={alert} />
           ))}
         </div>
@@ -172,10 +264,36 @@ export default function AlertsPage() {
   );
 }
 
+function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs text-muted font-mono uppercase tracking-wider mr-1">{label}</span>
+      <div className="flex flex-wrap gap-1">{children}</div>
+    </div>
+  );
+}
+
+function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`text-xs px-2 py-1 rounded-full transition-colors ${
+        active
+          ? "bg-accent text-white"
+          : "bg-surface-alt text-muted hover:text-foreground hover:bg-border"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function AlertCard({ alert }: { alert: AlertCandidate }) {
   const [showPreview, setShowPreview] = useState(false);
   const event = alert.events;
   const delivery = alert.message_deliveries[0];
+
+  const isTribute = event?.event_type === "tribute_concert" || event?.event_type === "recurring_experience";
 
   const statusColors: Record<string, string> = {
     eligible: "bg-accent/10 text-accent",
@@ -203,6 +321,11 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
             >
               {statusLabels[alert.status] || alert.status}
             </span>
+            {isTribute && (
+              <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-gold/20 text-gold">
+                Tribute
+              </span>
+            )}
             <span className="text-xs text-muted font-mono">
               Score {alert.score}
             </span>
@@ -211,6 +334,7 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
           <p className="text-sm text-muted">
             {event?.venue_name}
             {event?.venue_city && ` · ${event.venue_city}`}
+            {event?.starts_at && ` · ${new Date(event.starts_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
           </p>
         </div>
       </div>

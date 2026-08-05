@@ -9,9 +9,11 @@ interface FeaturedMatch {
   id: string;
   score: number;
   reasons: string[];
+  warnings: string[];
   events: {
     title: string;
     artist_name: string | null;
+    inspired_artist: string | null;
     venue_name: string | null;
     venue_city: string | null;
     starts_at: string | null;
@@ -32,6 +34,43 @@ interface DashboardData {
   matchCount: number;
   sentCount: number;
   featured: FeaturedMatch[];
+}
+
+const HYPE_LINES = [
+  "These guys are going to slay brah!",
+  "This one's going to be absolutely massive!",
+  "Don't sleep on this one!",
+  "You're going to want to be there for this!",
+  "This is the one. Lock it in!",
+  "Absolute scenes incoming!",
+  "Front row energy right here!",
+];
+
+function pickHype(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return HYPE_LINES[Math.abs(hash) % HYPE_LINES.length];
+}
+
+function daysUntil(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function urgencyLabel(days: number | null): string | null {
+  if (days === null) return null;
+  if (days <= 0) return "Today!";
+  if (days === 1) return "Tomorrow!";
+  if (days <= 7) return `${days} days away`;
+  if (days <= 14) return "Next week";
+  return null;
 }
 
 export default function Home() {
@@ -90,7 +129,7 @@ export default function Home() {
         sentCount: alerts.filter(
           (a: { status: string }) => a.status === "sent"
         ).length,
-        featured: eligible.slice(0, 2),
+        featured: eligible.slice(0, 5),
       });
       setLoading(false);
     }
@@ -119,6 +158,7 @@ export default function Home() {
           <Skeleton className="h-7 w-32" />
           <Skeleton className="h-4 w-56" />
         </div>
+        <Skeleton className="h-48 w-full rounded-xl" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCardSkeleton />
           <StatCardSkeleton />
@@ -186,99 +226,108 @@ export default function Home() {
     );
   }
 
+  const bigStory = data.featured[0] || null;
+  const otherMatches = data.featured.slice(1);
+
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          What&apos;s hot, {data.user.displayName.split(" ")[0]}
+        </h1>
         <p className="text-muted mt-1">
-          Never miss the events you&apos;ll love.
+          Your personalised event radar — updated daily at 7am
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Artists"
+      {bigStory ? (
+        <BigStoryCard match={bigStory} totalMatches={data.matchCount} />
+      ) : (
+        <div className="rounded-xl border-2 border-dashed border-border bg-surface p-8 text-center">
+          <p className="text-lg font-medium mb-1">No matches yet</p>
+          <p className="text-muted text-sm">
+            Import your artists and poll for events — Orkestrel will find your next big night out
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <MiniStat
           value={String(data.artistCount)}
-          note="followed"
+          label="artists tracked"
+          icon="🎤"
         />
-        <StatCard
-          label="Events"
+        <MiniStat
           value={String(data.eventCount)}
-          note={data.eventCount > 0 ? "discovered" : "Poll to fetch"}
+          label="events scanned"
+          icon="🔍"
         />
-        <StatCard
-          label="Matches"
+        <MiniStat
           value={String(data.matchCount)}
-          note={data.matchCount > 0 ? "eligible or sent" : "Run matching"}
+          label="matches found"
+          icon="🎯"
         />
-        <StatCard
-          label="Alerts sent"
+        <MiniStat
           value={String(data.sentCount)}
-          note={data.sentCount > 0 ? "via WhatsApp" : "none yet"}
+          label="alerts fired"
+          icon="📲"
         />
       </div>
 
-      {data.featured.length > 0 && (
+      {otherMatches.length > 0 && (
         <div className="space-y-3">
-          <h2 className="font-medium">Upcoming matches</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {data.featured.map((match) => (
-              <FeaturedCard key={match.id} match={match} />
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Also on the radar</h2>
+            <Link
+              href="/alerts"
+              className="text-xs text-accent hover:text-accent-hover transition-colors"
+            >
+              See all matches →
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {otherMatches.map((match) => (
+              <CompactMatchCard key={match.id} match={match} />
             ))}
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Section title="Getting started">
+        <Section title="Your setup">
           <ChecklistItem
-            done={!!data.user}
-            label="Connect your Spotify account"
+            done={!!data.user.spotifyId}
+            label="Connect Spotify"
+            subtext={data.user.spotifyId ? "Synced" : "Import your top artists"}
           />
           <ChecklistItem
-            done={!!data.user}
-            label="Set your event preferences"
+            done={data.artistCount > 0}
+            label="Artists loaded"
+            subtext={data.artistCount > 0 ? `${data.artistCount} tracked` : "Sync or add manually"}
           />
           <ChecklistItem
             done={data.eventCount > 0}
-            label="Run first event poll"
+            label="Events polled"
+            subtext={data.eventCount > 0 ? `${data.eventCount} scanned` : "Run first poll"}
           />
           <ChecklistItem
             done={data.matchCount > 0}
-            label="Review alert previews"
+            label="Matches found"
+            subtext={data.matchCount > 0 ? `${data.matchCount} matches` : "Run matching"}
           />
           <ChecklistItem
             done={data.sentCount > 0}
-            label="Send your first alert"
+            label="Alerts flowing"
+            subtext={data.sentCount > 0 ? "WhatsApp connected" : "Send your first alert"}
           />
         </Section>
 
-        <Section title="Quick actions">
+        <Section title="Jump to">
           <div className="space-y-1">
-            <Link
-              href="/artists"
-              className="block text-sm text-accent hover:text-accent-hover py-1"
-            >
-              Manage your artists ({data.artistCount})
-            </Link>
-            <Link
-              href="/events"
-              className="block text-sm text-accent hover:text-accent-hover py-1"
-            >
-              View events ({data.eventCount})
-            </Link>
-            <Link
-              href="/alerts"
-              className="block text-sm text-accent hover:text-accent-hover py-1"
-            >
-              Review alerts ({data.matchCount})
-            </Link>
-            <Link
-              href="/settings"
-              className="block text-sm text-accent hover:text-accent-hover py-1"
-            >
-              Update preferences
-            </Link>
+            <QuickLink href="/artists" label="My artists" count={data.artistCount} />
+            <QuickLink href="/events" label="Events" count={data.eventCount} />
+            <QuickLink href="/alerts" label="All matches" count={data.matchCount} />
+            <QuickLink href="/settings" label="Preferences" />
           </div>
         </Section>
       </div>
@@ -286,14 +335,14 @@ export default function Home() {
   );
 }
 
-function FeaturedCard({ match }: { match: FeaturedMatch }) {
+function BigStoryCard({ match, totalMatches }: { match: FeaturedMatch; totalMatches: number }) {
   const event = match.events;
   const offers = event.event_offers || [];
   const priced = offers
     .filter((o) => o.price_amount != null)
     .sort((a, b) => (a.price_amount ?? 0) - (b.price_amount ?? 0));
 
-  let priceLabel = "Price not yet available";
+  let priceLabel = "Price TBA";
   if (priced.length > 0) {
     const best = priced[0];
     const prefix = best.price_type === "from" ? "From " : "";
@@ -304,28 +353,138 @@ function FeaturedCard({ match }: { match: FeaturedMatch }) {
   if (event.starts_at) {
     const d = new Date(event.starts_at);
     dateLabel = d.toLocaleDateString("en-GB", {
-      weekday: "short",
+      weekday: "long",
       day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
+      month: "long",
     });
   }
 
+  const days = daysUntil(event.starts_at);
+  const urgency = urgencyLabel(days);
+  const hype = pickHype(match.id);
+  const isTribute = event.event_type === "tribute_concert" || event.event_type === "recurring_experience";
+
   return (
-    <div className="rounded-lg border border-accent/30 bg-surface p-4 space-y-2">
+    <div className="relative rounded-xl bg-gradient-to-br from-accent via-accent-hover to-accent overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.12),transparent_60%)]" />
+      <div className="relative p-6 sm:p-8 text-white">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xs font-mono uppercase tracking-widest opacity-80">
+            Big story
+          </span>
+          {urgency && (
+            <span className="text-xs font-bold bg-white/20 backdrop-blur-sm px-2 py-0.5 rounded-full">
+              {urgency}
+            </span>
+          )}
+          {isTribute && (
+            <span className="text-xs font-mono bg-gold/30 text-white px-2 py-0.5 rounded-full">
+              Tribute
+            </span>
+          )}
+        </div>
+
+        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
+          {event.title}
+        </h2>
+
+        <p className="text-white/80 text-sm sm:text-base mb-4">
+          {event.venue_name}
+          {event.venue_city && ` · ${event.venue_city}`}
+          {" · "}
+          {dateLabel}
+        </p>
+
+        <p className="text-lg sm:text-xl font-medium italic mb-5 text-white/90">
+          &ldquo;{hype}&rdquo;
+        </p>
+
+        <div className="flex flex-wrap items-center gap-3 mb-5">
+          <span className="text-sm font-bold bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
+            {priceLabel}
+          </span>
+          <span className="text-sm bg-white/10 px-3 py-1 rounded-lg">
+            Score {match.score}
+          </span>
+          {match.reasons.slice(0, 2).map((r, i) => (
+            <span key={i} className="text-xs bg-white/10 px-2 py-1 rounded-lg">
+              {r}
+            </span>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {event.official_url && (
+            <a
+              href={event.official_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 bg-white text-accent font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-white/90 transition-colors"
+            >
+              Lock in tickets →
+            </a>
+          )}
+          {totalMatches > 1 && (
+            <Link
+              href="/alerts"
+              className="text-sm text-white/80 hover:text-white transition-colors"
+            >
+              +{totalMatches - 1} more match{totalMatches - 1 === 1 ? "" : "es"}
+            </Link>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompactMatchCard({ match }: { match: FeaturedMatch }) {
+  const event = match.events;
+  const offers = event.event_offers || [];
+  const priced = offers
+    .filter((o) => o.price_amount != null)
+    .sort((a, b) => (a.price_amount ?? 0) - (b.price_amount ?? 0));
+
+  let priceLabel = "Price TBA";
+  if (priced.length > 0) {
+    const best = priced[0];
+    const prefix = best.price_type === "from" ? "From " : "";
+    priceLabel = `${prefix}£${best.price_amount!.toFixed(2)}`;
+  }
+
+  let dateLabel = "Date TBA";
+  if (event.starts_at) {
+    dateLabel = new Date(event.starts_at).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+    });
+  }
+
+  const days = daysUntil(event.starts_at);
+  const urgency = urgencyLabel(days);
+  const isTribute = event.event_type === "tribute_concert" || event.event_type === "recurring_experience";
+
+  return (
+    <div className="rounded-lg border border-border bg-surface p-4 space-y-2 hover:border-accent/40 transition-colors">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            {urgency && (
+              <span className="text-xs font-bold text-coral">{urgency}</span>
+            )}
+            {isTribute && (
+              <span className="text-xs font-mono text-gold">Tribute</span>
+            )}
+          </div>
           <h3 className="font-medium truncate">{event.title}</h3>
           <p className="text-sm text-muted truncate">
             {event.venue_name}
             {event.venue_city && ` · ${event.venue_city}`}
+            {" · "}
+            {dateLabel}
           </p>
         </div>
-      </div>
-      <div className="flex items-center gap-3 text-sm">
-        <span className="text-muted">{dateLabel}</span>
-        <span className="text-foreground font-medium">{priceLabel}</span>
+        <span className="text-sm font-medium whitespace-nowrap">{priceLabel}</span>
       </div>
       <div className="flex flex-wrap gap-1">
         {match.reasons.slice(0, 2).map((r, i) => (
@@ -344,29 +503,19 @@ function FeaturedCard({ match }: { match: FeaturedMatch }) {
           rel="noopener noreferrer"
           className="inline-block text-xs text-accent hover:text-accent-hover transition-colors"
         >
-          View tickets
+          Get tickets →
         </a>
       )}
     </div>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
+function MiniStat({ value, label, icon }: { value: string; label: string; icon: string }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <p className="text-xs text-muted font-mono uppercase tracking-wider">
-        {label}
-      </p>
-      <p className="text-2xl font-semibold mt-1">{value}</p>
-      <p className="text-xs text-muted mt-1">{note}</p>
+    <div className="rounded-lg border border-border bg-surface p-3 text-center">
+      <span className="text-lg">{icon}</span>
+      <p className="text-xl font-bold mt-0.5">{value}</p>
+      <p className="text-xs text-muted">{label}</p>
     </div>
   );
 }
@@ -386,7 +535,7 @@ function Section({
   );
 }
 
-function ChecklistItem({ done, label }: { done: boolean; label: string }) {
+function ChecklistItem({ done, label, subtext }: { done: boolean; label: string; subtext?: string }) {
   return (
     <div className="flex items-center gap-2 text-sm">
       <span
@@ -396,7 +545,26 @@ function ChecklistItem({ done, label }: { done: boolean; label: string }) {
       >
         {done && "✓"}
       </span>
-      <span className={done ? "text-muted line-through" : ""}>{label}</span>
+      <div className="min-w-0">
+        <span className={done ? "text-muted" : ""}>{label}</span>
+        {subtext && (
+          <span className="text-xs text-muted ml-1.5">· {subtext}</span>
+        )}
+      </div>
     </div>
+  );
+}
+
+function QuickLink({ href, label, count }: { href: string; label: string; count?: number }) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center justify-between text-sm text-accent hover:text-accent-hover py-1.5 transition-colors"
+    >
+      <span>{label}</span>
+      {count !== undefined && (
+        <span className="text-xs text-muted font-mono">{count}</span>
+      )}
+    </Link>
   );
 }
