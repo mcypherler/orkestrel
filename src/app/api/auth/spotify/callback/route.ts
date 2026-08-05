@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeCode, getProfile } from "@/lib/integrations/spotify";
 import { encrypt } from "@/lib/crypto";
-import { createSession } from "@/lib/session";
+import { createSession, getSession } from "@/lib/session";
 import { createServerClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
@@ -49,32 +49,45 @@ export async function GET(request: NextRequest) {
         })
         .eq("id", userId);
     } else {
-      const { data: newUser, error: insertErr } = await supabase
-        .from("users")
-        .insert({
-          spotify_id: profile.id,
-          display_name: profile.display_name,
-          email: profile.email,
-        })
-        .select("id")
-        .single();
+      const existingSession = await getSession();
+      if (existingSession) {
+        userId = existingSession.userId;
+        await supabase
+          .from("users")
+          .update({
+            spotify_id: profile.id,
+            display_name: profile.display_name,
+            email: profile.email,
+          })
+          .eq("id", userId);
+      } else {
+        const { data: newUser, error: insertErr } = await supabase
+          .from("users")
+          .insert({
+            spotify_id: profile.id,
+            display_name: profile.display_name,
+            email: profile.email,
+          })
+          .select("id")
+          .single();
 
-      if (insertErr || !newUser) {
-        return NextResponse.redirect(
-          `${appUrl}/settings?error=user_creation_failed`
-        );
+        if (insertErr || !newUser) {
+          return NextResponse.redirect(
+            `${appUrl}/settings?error=user_creation_failed`
+          );
+        }
+        userId = newUser.id;
+
+        await supabase.from("preferences").insert({
+          user_id: userId,
+          home_postcode: "BH14",
+          preferred_cities: ["Poole", "Bournemouth", "London"],
+          max_price_gbp: 50,
+          ticket_count: 3,
+          reject_restricted_view: true,
+          allow_tributes: true,
+        });
       }
-      userId = newUser.id;
-
-      await supabase.from("preferences").insert({
-        user_id: userId,
-        home_postcode: "BH14",
-        preferred_cities: ["Poole", "Bournemouth", "London"],
-        max_price_gbp: 50,
-        ticket_count: 3,
-        reject_restricted_view: true,
-        allow_tributes: true,
-      });
 
       await supabase.from("consents").insert({
         user_id: userId,

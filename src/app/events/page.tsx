@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { CardSkeleton, Skeleton } from "@/components/loading";
+import { CardSkeleton, Skeleton, Spinner } from "@/components/loading";
 
 interface EventOffer {
   id: string;
@@ -91,7 +91,7 @@ export default function EventsPage() {
           disabled={polling}
           className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
         >
-          {polling ? "Polling..." : "Poll now"}
+          {polling ? <><Spinner size={14} /> Polling...</> : "Poll now"}
         </button>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { CardSkeleton, Skeleton } from "@/components/loading";
+import { CardSkeleton, Skeleton, Spinner } from "@/components/loading";
 
 interface Artist {
   id: string;
@@ -27,6 +27,7 @@ export default function ArtistsPage() {
   const [artists, setArtists] = useState<Artist[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [newArtist, setNewArtist] = useState("");
   const [adding, setAdding] = useState(false);
 
@@ -52,7 +53,15 @@ export default function ArtistsPage() {
 
   async function handleSync() {
     setSyncing(true);
-    await fetch("/api/artists/sync", { method: "POST" });
+    setSyncResult(null);
+    const res = await fetch("/api/artists/sync", { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      const parts = [`Imported ${data.imported}`];
+      if (data.filtered > 0) parts.push(`${data.filtered} below threshold`);
+      if (data.skipped > 0) parts.push(`${data.skipped} skipped`);
+      setSyncResult(parts.join(" · "));
+    }
     await fetchData();
     setSyncing(false);
   }
@@ -127,14 +136,29 @@ export default function ArtistsPage() {
             </span>
           </p>
         </div>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-        >
-          {syncing ? "Syncing..." : "Sync Spotify"}
-        </button>
+        {user.spotifyId ? (
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            {syncing ? <><Spinner size={14} /> Syncing...</> : "Sync Spotify"}
+          </button>
+        ) : (
+          <a
+            href="/api/auth/spotify"
+            className="text-sm bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors inline-flex items-center gap-1.5"
+          >
+            Connect Spotify
+          </a>
+        )}
       </div>
+
+      {syncResult && (
+        <div className="text-sm bg-surface-alt border border-border rounded-lg px-3 py-2 text-muted">
+          {syncResult}
+        </div>
+      )}
 
       <form onSubmit={handleAdd} className="flex gap-2">
         <input

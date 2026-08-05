@@ -173,9 +173,12 @@ export async function getValidAccessToken(userId: string): Promise<string> {
   return tokens.access_token;
 }
 
+const MIN_ARTIST_SCORE = 8;
+
 export async function syncArtistsFromSpotify(userId: string): Promise<{
   imported: number;
   skipped: number;
+  filtered: number;
 }> {
   const accessToken = await getValidAccessToken(userId);
   const supabase = createServerClient();
@@ -233,8 +236,14 @@ export async function syncArtistsFromSpotify(userId: string): Promise<{
 
   let imported = 0;
   let skipped = 0;
+  let filtered = 0;
 
   for (const artist of artistScores.values()) {
+    if (artist.score < MIN_ARTIST_SCORE) {
+      filtered++;
+      continue;
+    }
+
     const { data: existingArtist } = await supabase
       .from("artists")
       .select("id")
@@ -306,5 +315,5 @@ export async function syncArtistsFromSpotify(userId: string): Promise<{
     .update({ last_synced_at: new Date().toISOString() })
     .eq("user_id", userId);
 
-  return { imported, skipped };
+  return { imported, skipped, filtered };
 }

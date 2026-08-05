@@ -57,3 +57,18 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
+
+@keyframes kestrel-swoop {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-3px) rotate(-10deg);
+  }
+  60% {
+    transform: translateY(4px) rotate(40deg) scale(0.95);
+  }
+  80% {
+    transform: translateY(0) rotate(5deg);
+  }
+}

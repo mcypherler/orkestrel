@@ -46,27 +46,17 @@ export function PageSkeleton({ cards = 3 }: { cards?: number }) {
   );
 }
 
-export function Spinner({ size = 16 }: { size?: number }) {
+export function Spinner({ size = 18 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 16 16"
-      fill="none"
-      className="animate-spin"
+      fill="currentColor"
+      style={{ animation: "kestrel-swoop 1.3s ease-in-out infinite" }}
       aria-hidden="true"
     >
-      <circle
-        cx="8"
-        cy="8"
-        r="6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeDasharray="28"
-        strokeDashoffset="20"
-        opacity="0.7"
-      />
+      <path d="M8 1.5 L5.5 5.5 L1 4 L4.5 7.5 L2.5 13 L8 9.5 L13.5 13 L11.5 7.5 L15 4 L10.5 5.5 Z" />
     </svg>
   );
 }
