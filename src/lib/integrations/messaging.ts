@@ -108,8 +108,8 @@ async function sendViaTwilio(
   error?: string;
   attempts: number;
 }> {
-  const accountSid = process.env.TWILLIO_API_CLIENTID;
-  const authToken = process.env.TWILLIO_API_SECRET;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_WHATSAPP_FROM;
   const to = process.env.WHATSAPP_RECIPIENT;
 
@@ -117,8 +117,8 @@ async function sendViaTwilio(
     return {
       success: false,
       error: `Twilio not configured: ${[
-        !accountSid && "TWILLIO_API_CLIENTID",
-        !authToken && "TWILLIO_API_SECRET",
+        !accountSid && "TWILIO_ACCOUNT_SID",
+        !authToken && "TWILIO_AUTH_TOKEN",
         !from && "TWILIO_WHATSAPP_FROM",
         !to && "WHATSAPP_RECIPIENT",
       ]
@@ -219,6 +219,8 @@ export async function deliverAlerts(userId: string): Promise<{
   const provider = process.env.WHATSAPP_PROVIDER || "console";
   const alertsEnabled = process.env.ALERTS_ENABLED === "true";
 
+  const semanticMode = process.env.SEMANTIC_MATCHING_MODE || "off";
+
   const { data: candidates } = await supabase
     .from("alert_candidates")
     .select("*, events(*, event_offers(*))")
@@ -226,81 +228,97 @@ export async function deliverAlerts(userId: string): Promise<{
     .eq("status", "eligible")
     .order("score", { ascending: false });
 
+  // In "ranked" mode, semantic matches appear in the UI but are NOT sent
+  // as WhatsApp alerts. Only "notify" mode allows semantic alert delivery.
+  const deliverableCandidates = (candidates || []).filter((c) => {
+    if (c.match_lane === "semantic" && semanticMode !== "notify") return false;
+    return true;
+  });
+
   if (!candidates || candidates.length === 0) {
     return { sent: 0, previewed: 0, failed: 0, errors: [], bigStory: null };
   }
 
-  const prepared: PreparedAlert[] = [];
+  function prepareCandidateList(
+    list: typeof candidates
+  ): PreparedAlert[] {
+    const result: PreparedAlert[] = [];
+    for (const candidate of list!) {
+      const event = candidate.events as Record<string, unknown>;
+      if (!event) continue;
 
-  for (const candidate of candidates) {
-    const event = candidate.events as Record<string, unknown>;
-    if (!event) continue;
+      const offers = (event.event_offers || []) as Record<string, unknown>[];
 
-    const offers = (event.event_offers || []) as Record<string, unknown>[];
-
-    const priceLabel = buildPriceLabel(
-      offers.map((o) => ({
-        price_amount: o.price_amount as number | null,
-        price_type: o.price_type as string | null,
-      }))
-    );
-
-    const alertData: AlertData = {
-      candidateId: candidate.id as string,
-      title: event.title as string,
-      eventType: event.event_type as string,
-      inspiredArtist: event.inspired_artist as string | null,
-      venueName: event.venue_name as string | null,
-      venueCity: event.venue_city as string | null,
-      startsAt: event.starts_at as string | null,
-      priceLabel,
-      seatNote: buildSeatNote(
+      const priceLabel = buildPriceLabel(
         offers.map((o) => ({
-          seat_quality: o.seat_quality as string,
-          section: o.section as string | null,
+          price_amount: o.price_amount as number | null,
+          price_type: o.price_type as string | null,
         }))
-      ),
-      matchReasons: (candidate.reasons as string[]) || [],
-      warnings: (candidate.warnings as string[]) || [],
-      officialUrl: event.official_url as string | null,
-      matchLane: candidate.match_lane as string | null,
-      matchEvidence: candidate.match_evidence as AlertData["matchEvidence"],
-    };
+      );
 
-    prepared.push({
-      candidateId: candidate.id as string,
-      eventTitle: event.title as string,
-      artistName: event.artist_name as string | null,
-      eventType: event.event_type as string,
-      venueName: event.venue_name as string | null,
-      venueCity: event.venue_city as string | null,
-      startsAt: event.starts_at as string | null,
-      score: (candidate.score as number) || 0,
-      reasons: (candidate.reasons as string[]) || [],
-      priceLabel,
-      preview: formatAlertPreview(alertData),
-    });
+      const alertData: AlertData = {
+        candidateId: candidate.id as string,
+        title: event.title as string,
+        eventType: event.event_type as string,
+        inspiredArtist: event.inspired_artist as string | null,
+        venueName: event.venue_name as string | null,
+        venueCity: event.venue_city as string | null,
+        startsAt: event.starts_at as string | null,
+        priceLabel,
+        seatNote: buildSeatNote(
+          offers.map((o) => ({
+            seat_quality: o.seat_quality as string,
+            section: o.section as string | null,
+          }))
+        ),
+        matchReasons: (candidate.reasons as string[]) || [],
+        warnings: (candidate.warnings as string[]) || [],
+        officialUrl: event.official_url as string | null,
+        matchLane: candidate.match_lane as string | null,
+        matchEvidence: candidate.match_evidence as AlertData["matchEvidence"],
+      };
+
+      result.push({
+        candidateId: candidate.id as string,
+        eventTitle: event.title as string,
+        artistName: event.artist_name as string | null,
+        eventType: event.event_type as string,
+        venueName: event.venue_name as string | null,
+        venueCity: event.venue_city as string | null,
+        startsAt: event.starts_at as string | null,
+        score: (candidate.score as number) || 0,
+        reasons: (candidate.reasons as string[]) || [],
+        priceLabel,
+        preview: formatAlertPreview(alertData),
+      });
+    }
+    return result;
   }
 
+  const prepared = prepareCandidateList(deliverableCandidates);
+
   if (prepared.length === 0) {
+    for (const c of candidates) {
+      await supabase
+        .from("alert_candidates")
+        .update({ status: "sent" })
+        .eq("id", c.id);
+    }
     return { sent: 0, previewed: 0, failed: 0, errors: [], bigStory: null };
   }
 
-  // Ask OpenAI to pick the big story of the day
   const bigStory = await pickBigStory(
-    candidates.map((c, i) => ({
+    prepared.map((p, i) => ({
       index: i,
-      title: (c.events as Record<string, unknown>)?.title as string || "",
-      artistName: (c.events as Record<string, unknown>)?.artist_name as string | null,
-      eventType: (c.events as Record<string, unknown>)?.event_type as string || "",
-      venueName: (c.events as Record<string, unknown>)?.venue_name as string | null,
-      venueCity: (c.events as Record<string, unknown>)?.venue_city as string | null,
-      startsAt: (c.events as Record<string, unknown>)?.starts_at as string | null,
-      score: prepared[i]?.score || 0,
-      reasons: prepared[i]?.reasons || [],
-      priceLabel: prepared[i]?.priceLabel || "Price TBC",
-      status: c.status as string,
-      createdAt: c.created_at as string,
+      title: p.eventTitle,
+      artistName: p.artistName,
+      eventType: p.eventType,
+      venueName: p.venueName,
+      venueCity: p.venueCity,
+      startsAt: p.startsAt,
+      score: p.score,
+      reasons: p.reasons,
+      priceLabel: p.priceLabel,
     }))
   );
 
@@ -361,11 +379,12 @@ export async function deliverAlerts(userId: string): Promise<{
     previewed++;
   }
 
-  for (const alert of prepared) {
+  const allCandidateIds = (candidates || []).map((c) => c.id as string);
+  for (const id of allCandidateIds) {
     await supabase
       .from("alert_candidates")
       .update({ status: "sent" })
-      .eq("id", alert.candidateId);
+      .eq("id", id);
   }
 
   return { sent, previewed, failed, errors, bigStory: bigStory?.headline || null };

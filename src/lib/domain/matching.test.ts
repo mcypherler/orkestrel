@@ -140,6 +140,196 @@ describe("matchEvent — AI classify lane", () => {
   });
 });
 
+describe("matchEvent — false positive prevention", () => {
+  it("does not match 'Whitney Queen of the Night' when user follows 'Queen' (strict short-name regex)", () => {
+    const result = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Queen of the Night - A Tribute to Whitney Houston",
+        artist_name: "Whitney Queen of the Night",
+        event_type: "concert",
+        inspired_artist: null,
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [
+        { name: "Queen", relationship: "follow" },
+        { name: "Muse", relationship: "follow" },
+      ],
+    });
+
+    expect(result.eligible).toBe(false);
+    expect(result.reasons.every((r) => !r.includes("Queen"))).toBe(true);
+  });
+
+  it("detects 'Rumours of Fleetwood Mac' as tribute even when event_type is concert", () => {
+    const tributeResult = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Rumours of Fleetwood Mac - 50th Anniversary Tour 2027",
+        artist_name: "Rumours of Fleetwood Mac",
+        event_type: "concert",
+        inspired_artist: null,
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "Fleetwood Mac", relationship: "follow" }],
+    });
+
+    const originalResult = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Fleetwood Mac Live",
+        artist_name: "Fleetwood Mac",
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "Fleetwood Mac", relationship: "follow" }],
+    });
+
+    expect(tributeResult.eligible).toBe(true);
+    expect(tributeResult.warnings.some((w) => w.includes("Tribute") || w.includes("tribute") || w.includes("not the original"))).toBe(true);
+    expect(tributeResult.score).toBeLessThan(originalResult.score);
+    expect(originalResult.score - tributeResult.score).toBeGreaterThanOrEqual(20);
+    expect(tributeResult.reasons.some((r) => r.includes("tribute"))).toBe(true);
+  });
+
+  it("still matches actual Fleetwood Mac performing", () => {
+    const result = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Fleetwood Mac Live",
+        artist_name: "Fleetwood Mac",
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "Fleetwood Mac", relationship: "follow" }],
+    });
+
+    expect(result.eligible).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(40);
+    expect(result.warnings.every((w) => !w.includes("Tribute"))).toBe(true);
+  });
+
+  it("rejects partial name overlap (Roger Taylor vs Taylor Swift)", () => {
+    const result = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Taylor Swift Eras Tour",
+        artist_name: "Taylor Swift",
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "Roger Taylor", relationship: "follow" }],
+    });
+
+    expect(result.eligible).toBe(false);
+  });
+
+  it("rejects shared-word false positives (James Brown vs James Bay)", () => {
+    const result = matchEvent({
+      event: { ...baseEvent, title: "James Bay Live", artist_name: "James Bay" },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "James Brown", relationship: "follow" }],
+    });
+
+    expect(result.eligible).toBe(false);
+  });
+});
+
+describe("matchEvent — tribute scoring and visibility", () => {
+  it("tribute score is significantly lower than original artist", () => {
+    const tributeResult = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Rumours of Fleetwood Mac",
+        artist_name: "Rumours of Fleetwood Mac",
+        event_type: "tribute_concert",
+        inspired_artist: "Fleetwood Mac",
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "Fleetwood Mac", relationship: "follow" }],
+    });
+
+    const originalResult = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Fleetwood Mac Live",
+        artist_name: "Fleetwood Mac",
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "Fleetwood Mac", relationship: "follow" }],
+    });
+
+    expect(tributeResult.score).toBeLessThan(originalResult.score);
+    expect(originalResult.score - tributeResult.score).toBeGreaterThanOrEqual(20);
+    expect(tributeResult.warnings.some((w) => w.includes("Tribute") || w.includes("tribute"))).toBe(true);
+  });
+
+  it("does not match tribute name as the followed artist", () => {
+    const result = matchEvent({
+      event: {
+        ...baseEvent,
+        title: "Rumours of Fleetwood Mac",
+        artist_name: "Rumours of Fleetwood Mac",
+        event_type: "tribute_concert",
+        inspired_artist: "Fleetwood Mac",
+      },
+      offers: baseOffers,
+      userPrefs: basePrefs,
+      followedArtists: [{ name: "Fleetwood Mac", relationship: "follow" }],
+    });
+
+    expect(result.reasons.some((r) => r.includes("Fleetwood Mac"))).toBe(true);
+    expect(result.reasons.some((r) => r.includes("tribute"))).toBe(true);
+  });
+});
+
+describe("matchEvent — policy filters", () => {
+  it("rejects musically relevant event outside preferred cities", () => {
+    const result = matchEvent({
+      event: {
+        ...baseEvent,
+        venue_city: "Glasgow",
+        venue_postcode: "G1 1AA",
+      },
+      offers: baseOffers,
+      userPrefs: { ...basePrefs, preferred_cities: ["London"] },
+      followedArtists: followed,
+    });
+
+    expect(result.eligible).toBe(true);
+    expect(result.reasons.every((r) => !r.includes("Glasgow"))).toBe(true);
+  });
+
+  it("handles event with no offers gracefully", () => {
+    const result = matchEvent({
+      event: baseEvent,
+      offers: [],
+      userPrefs: basePrefs,
+      followedArtists: followed,
+    });
+
+    expect(result.eligible).toBe(true);
+    expect(result.warnings.some((w) => w.includes("View not verified") || w.includes("Price not supplied"))).toBe(true);
+  });
+
+  it("rejects events with only restricted view offers", () => {
+    const result = matchEvent({
+      event: baseEvent,
+      offers: [{ ...baseOffers[0], seat_quality: "restricted view" }],
+      userPrefs: { ...basePrefs, reject_restricted_view: true },
+      followedArtists: followed,
+    });
+
+    expect(result.eligible).toBe(false);
+    expect(result.reasons.some((r) => r.includes("Rejected"))).toBe(true);
+  });
+});
+
 describe("matchEvent — semantic lane", () => {
   it("scores a semantic match at +25", () => {
     const result = matchEvent({
