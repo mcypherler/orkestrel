@@ -85,10 +85,13 @@ export function matchEvent(input: MatchInput): MatchResult {
     };
   }
 
-  if (
+  const isTributeType =
     event.event_type === "tribute_concert" ||
-    event.event_type === "recurring_experience"
-  ) {
+    event.event_type === "recurring_experience";
+  const isTributeByTitle = !isTributeType && looksLikeTribute(event.title, event.artist_name);
+  const isTribute = isTributeType || isTributeByTitle;
+
+  if (isTributeType) {
     if (!userPrefs.allow_tributes) {
       return {
         eligible: false,
@@ -107,21 +110,18 @@ export function matchEvent(input: MatchInput): MatchResult {
     followedArtists,
     event.title
   );
+
   if (artistMatch) {
     score += 40;
-    if (event.event_type === "tribute_concert") {
+    if (isTribute) {
       reasons.push(`Followed artist: ${artistMatch.name} (tribute)`);
-    } else if (event.event_type === "recurring_experience") {
-      reasons.push(`Followed artist: ${artistMatch.name} (inspired experience)`);
     } else {
       reasons.push(`Followed artist: ${artistMatch.name}`);
     }
   } else if (input.aiMatchedArtist) {
     score += 35;
-    if (event.event_type === "tribute_concert") {
+    if (isTribute) {
       reasons.push(`AI matched: ${input.aiMatchedArtist} (tribute)`);
-    } else if (event.event_type === "recurring_experience") {
-      reasons.push(`AI matched: ${input.aiMatchedArtist} (inspired experience)`);
     } else {
       reasons.push(`AI matched: ${input.aiMatchedArtist}`);
     }
@@ -136,8 +136,7 @@ export function matchEvent(input: MatchInput): MatchResult {
 
   const hasSemanticMatch = input.semanticMatch?.decision === "recommend" && (input.semanticMatch?.semanticFit ?? 0) >= 0.7;
   if (
-    (artistMatch || input.aiMatchedArtist || hasSemanticMatch) &&
-    (event.event_type === "tribute_concert" || event.event_type === "recurring_experience")
+    (artistMatch || input.aiMatchedArtist || hasSemanticMatch) && isTribute
   ) {
     score -= 20;
     warnings.push("Tribute/experience — not the original artist");
@@ -233,12 +232,29 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/[\s\-_.,''&!?()]/g, "");
 }
 
+const TRIBUTE_INDICATORS = [
+  /\btribute\b/i,
+  /\btributes?\s+to\b/i,
+  /\brumours\s+of\b/i,
+  /\bthe\s+music\s+of\b/i,
+  /\bcelebrating\b/i,
+  /\bexperience\b/i,
+  /\bsongs\s+of\b/i,
+  /\bthe\s+best\s+of\b/i,
+  /\bnight\s+of\b/i,
+];
+
+function looksLikeTribute(title: string, artistName: string | null): boolean {
+  const text = `${title} ${artistName || ""}`;
+  return TRIBUTE_INDICATORS.some((re) => re.test(text));
+}
+
 function findArtistMatch(
   artistName: string | null,
   inspiredArtist: string | null,
   followedArtists: { name: string; relationship: string }[],
   eventTitle?: string
-): { name: string } | null {
+): { name: string; matchType: "exact" | "normalized" | "boundary" } | null {
   const candidates = [inspiredArtist, artistName, eventTitle].filter(Boolean) as string[];
 
   for (const candidate of candidates) {
@@ -250,7 +266,7 @@ function findArtistMatch(
         a.relationship !== "remove" &&
         a.name.toLowerCase() === candidateLower
     );
-    if (exact) return exact;
+    if (exact) return { ...exact, matchType: "exact" };
 
     const normalized = followedArtists.find(
       (a) =>
@@ -258,20 +274,49 @@ function findArtistMatch(
         a.name.length >= 3 &&
         normalize(a.name) === candidateNorm
     );
-    if (normalized) return normalized;
+    if (normalized) return { ...normalized, matchType: "normalized" };
 
     const boundary = followedArtists.find((a) => {
       if (a.relationship === "remove" || a.name.length < 4) return false;
+
       if (a.name.length <= 6) {
         const escaped = a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const re = new RegExp(`(^|[,&;|/]\\s*)${escaped}(\\s*[,&;|/]|$)`, "i");
         return re.test(candidate);
       }
+
       const escaped = a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const re = new RegExp(`(^|[\\s,\\-—(])${escaped}([\\s,\\-—)!?]|$)`, "i");
-      return re.test(candidate);
+      if (!re.test(candidate)) return false;
+
+      const artistLower = a.name.toLowerCase();
+      if (
+        candidateLower !== artistLower &&
+        candidateLower.startsWith(artistLower + " ") &&
+        candidateLower.length > artistLower.length + 3
+      ) {
+        return false;
+      }
+      if (
+        candidateLower !== artistLower &&
+        candidateLower.includes(" " + artistLower + " ") === false &&
+        !candidateLower.endsWith(" " + artistLower) &&
+        candidateLower.startsWith(artistLower) === false
+      ) {
+        return true;
+      }
+
+      if (candidateLower.startsWith(artistLower + " of ")) return false;
+      if (candidateLower.startsWith(artistLower + " the ")) return false;
+
+      const afterMatch = candidateLower.slice(
+        candidateLower.indexOf(artistLower) + artistLower.length
+      ).trim();
+      if (afterMatch.startsWith("of ") || afterMatch.startsWith("the ")) return false;
+
+      return true;
     });
-    if (boundary) return boundary;
+    if (boundary) return { ...boundary, matchType: "boundary" };
   }
   return null;
 }

@@ -69,6 +69,62 @@ function hashArtistList(artists: string[]): string {
   return createHash("sha256").update(sorted.join("\0")).digest("hex").slice(0, 16);
 }
 
+async function checkCostBudget(
+  supabase: ReturnType<typeof createServerClient>
+): Promise<{ allowed: boolean; reason?: string }> {
+  const { data: budgets } = await supabase
+    .from("semantic_cost_budget")
+    .select("budget_period, max_cost_usd, kill_switch");
+
+  if (!budgets) return { allowed: true };
+
+  for (const budget of budgets) {
+    if (budget.kill_switch) {
+      return { allowed: false, reason: "Semantic matching kill switch is active" };
+    }
+  }
+
+  const dailyBudget = budgets.find((b) => b.budget_period === "daily");
+  const monthlyBudget = budgets.find((b) => b.budget_period === "monthly");
+
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+
+  const monthStart = new Date();
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+
+  if (dailyBudget) {
+    const { data: dailyUsage } = await supabase
+      .from("semantic_usage_log")
+      .select("estimated_cost_usd")
+      .gte("created_at", todayStart.toISOString());
+
+    const dailyTotal = (dailyUsage || []).reduce(
+      (sum, r) => sum + (r.estimated_cost_usd || 0), 0
+    );
+    if (dailyTotal >= dailyBudget.max_cost_usd) {
+      return { allowed: false, reason: `Daily cost budget exceeded ($${dailyTotal.toFixed(4)} / $${dailyBudget.max_cost_usd})` };
+    }
+  }
+
+  if (monthlyBudget) {
+    const { data: monthlyUsage } = await supabase
+      .from("semantic_usage_log")
+      .select("estimated_cost_usd")
+      .gte("created_at", monthStart.toISOString());
+
+    const monthlyTotal = (monthlyUsage || []).reduce(
+      (sum, r) => sum + (r.estimated_cost_usd || 0), 0
+    );
+    if (monthlyTotal >= monthlyBudget.max_cost_usd) {
+      return { allowed: false, reason: `Monthly cost budget exceeded ($${monthlyTotal.toFixed(4)} / $${monthlyBudget.max_cost_usd})` };
+    }
+  }
+
+  return { allowed: true };
+}
+
 export async function runSemanticMatching(
   userId: string,
   tasteArtists: TasteArtist[],
@@ -94,6 +150,13 @@ export async function runSemanticMatching(
   }
 
   const supabase = createServerClient();
+
+  const budgetCheck = await checkCostBudget(supabase);
+  if (!budgetCheck.allowed) {
+    console.warn(`Semantic matching skipped: ${budgetCheck.reason}`);
+    stats.latencyMs = Date.now() - startTime;
+    return { results: [], stats };
+  }
   const artistHash = hashArtistList(tasteArtists.map((a) => a.name));
 
   // Check semantic_match_cache for already-processed events
