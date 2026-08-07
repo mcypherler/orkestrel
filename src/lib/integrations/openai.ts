@@ -28,28 +28,42 @@ function hashArtistList(artists: string[]): string {
 const SYSTEM_PROMPT = `You match music events to a user's followed artists. Given an event and a list of followed artists, determine if the event is relevant to any of them.
 
 Match when:
-- The event features, tributes, or is inspired by a followed artist
-- The event artist is a known alias, side project, or band member of a followed artist
-- The event title clearly references a followed artist's work (album names, signature songs)
+- The event features a followed artist (same real-world person or group)
+- The event artist is a verified alias, side project, or current/former band member of a followed artist (you must be certain of this musical relationship)
+- The event title references a followed artist's specific album, tour, or signature song
 - The performer is a known tribute act for a followed artist
 
 Do NOT match when:
-- The connection is only a shared genre or era
-- The artist name appears as a substring of an unrelated word
+- Two artists merely share a first name, last name, or word in their name (e.g. Roger Taylor is NOT Taylor Swift; James Brown is NOT James Bay; The Weeknd is NOT Weekend Wars)
+- The connection is only a shared genre, era, or musical style
+- The artist name appears as a substring of an unrelated name
+- You are not certain the artists are musically related — when in doubt, do NOT match
+
+Classify your confidence:
+- 0.9-1.0 = Strong Match (same artist, confirmed alias, or official tribute)
+- 0.7-0.85 = Plausible Discovery (confirmed side project, ex-band member, or clearly related)
+- 0.3-0.65 = Weak Match (same genre, vague connection — do NOT match)
+- 0-0.25 = No Relationship
+
+Only return matched:true for Strong Match or Plausible Discovery (confidence >= 0.7).
 
 Respond with JSON: {"matched": boolean, "artistName": string|null, "confidence": number 0-1, "reasoning": string (max 20 words)}`;
 
 const BATCH_SYSTEM_PROMPT = `You match music events to a user's followed artists. For each numbered event, determine if it is relevant to any followed artist.
 
 Match when:
-- The event features, tributes, or is inspired by a followed artist
-- The event artist is a known alias, side project, or band member of a followed artist
-- The event title clearly references a followed artist's work (album names, signature songs)
+- The event features a followed artist (same real-world person or group)
+- The event artist is a verified alias, side project, or current/former band member of a followed artist (you must be certain of this musical relationship)
+- The event title references a followed artist's specific album, tour, or signature song
 - The performer is a known tribute act for a followed artist
 
 Do NOT match when:
-- The connection is only a shared genre or era
-- The artist name appears as a substring of an unrelated word
+- Two artists merely share a first name, last name, or word in their name (e.g. Roger Taylor is NOT Taylor Swift; James Brown is NOT James Bay; The Weeknd is NOT Weekend Wars)
+- The connection is only a shared genre, era, or musical style
+- The artist name appears as a substring of an unrelated name
+- You are not certain the artists are musically related — when in doubt, do NOT match
+
+Only return matched:true when confidence >= 0.7 (Strong Match or Plausible Discovery).
 
 Respond with JSON: {"results": [{"index": number, "matched": boolean, "artistName": string|null, "confidence": number 0-1, "reasoning": string (max 15 words)}]}`;
 
@@ -224,6 +238,8 @@ export interface BigStoryCandidate {
   score: number;
   reasons: string[];
   priceLabel: string;
+  status?: string;
+  createdAt?: string;
 }
 
 export interface BigStoryResult {
@@ -258,6 +274,8 @@ export async function pickBigStory(
         c.startsAt && `  Date: ${c.startsAt}`,
         `  Price: ${c.priceLabel}`,
         `  Match score: ${c.score}, reasons: ${c.reasons.join("; ")}`,
+        c.status && `  Status: ${c.status}`,
+        c.createdAt && `  First seen: ${c.createdAt.slice(0, 10)}`,
       ];
       return parts.filter(Boolean).join("\n");
     })
@@ -277,17 +295,24 @@ export async function pickBigStory(
       messages: [
         {
           role: "system",
-          content: `You help fans never miss seeing their favourite artists live. Pick the single alert they need to act on most urgently.
+          content: `You help fans never miss seeing their favourite artists live. Pick the single alert that demands action TODAY — the one thing they'd regret not doing tomorrow.
+
+"Big Story of the Day" does NOT mean "event happening today." It means: "the most important action the user should take right now so they don't miss a future event."
 
 Rank by these factors (most to least important):
-1. URGENCY — tickets going on sale imminently, event date approaching fast, or limited availability. The fan might miss out if they don't act today.
-2. Original artist performing live — especially a rare tour, comeback, reunion, or one-off show. These are once-in-a-lifetime moments.
-3. Proximity — event is in or near the user's preferred cities (check venue/city).
-4. Match strength — higher score and direct artist match over AI-inferred match.
-5. Value — affordable tickets for a big act are more exciting than expensive ones.
+1. NEWLY AVAILABLE — tickets just released, event just announced, or newly discovered. Fresh opportunities beat stale ones every time.
+2. URGENCY — tickets expected to sell out, limited availability, event date approaching fast. The fan might miss out if they wait.
+3. Original artist performing live — especially a rare tour, comeback, reunion, or one-off show. Once-in-a-lifetime moments.
+4. VALUE — great pricing for a big act. "£45 for Adele" is more exciting than "£200 for a tribute act."
+5. Match strength — direct artist match over AI-inferred. Higher score wins ties.
+
+IMPORTANT: Never pick the same event day after day. If multiple candidates exist, prefer:
+- Events the user hasn't been alerted about yet (status "eligible" over "sent")
+- Newly created candidates (recent created_at) over older ones
+- Different artists over the same artist appearing repeatedly
 
 Tributes and experiences are only the lead story if there is genuinely nothing else.
-Today's date is ${today}. Events happening within 30 days are significantly more urgent. Events where tickets just went on sale are the most time-sensitive — they sell out.
+Today's date is ${today}. Events within 30 days are more urgent. Events just announced are the most actionable.
 
 Respond with JSON: {"pickedIndex": number, "headline": string (max 80 chars — urgent, personal, as if texting a friend who might miss out, e.g. "Coldplay tickets just dropped — your city, next month!" or "Don't sleep on this — Radiohead are back!"), "reasoning": string (max 30 words)}`,
         },

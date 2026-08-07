@@ -5,11 +5,19 @@ import Link from "next/link";
 import Image from "next/image";
 import { StatCardSkeleton, Skeleton, Spinner } from "@/components/loading";
 
+interface EventOffer {
+  price_amount: number | null;
+  price_currency: string;
+  price_type: string | null;
+}
+
 interface FeaturedMatch {
   id: string;
   score: number;
   reasons: string[];
   warnings: string[];
+  status?: string;
+  created_at?: string;
   events: {
     title: string;
     artist_name: string | null;
@@ -19,12 +27,20 @@ interface FeaturedMatch {
     starts_at: string | null;
     official_url: string | null;
     event_type: string;
-    event_offers: {
-      price_amount: number | null;
-      price_currency: string;
-      price_type: string | null;
-    }[];
+    provider: string | null;
+    event_offers: EventOffer[];
   };
+}
+
+function formatPrice(offers: EventOffer[]): string {
+  if (!offers || offers.length === 0) return "Price TBC";
+  const priced = offers
+    .filter((o) => o.price_amount != null)
+    .sort((a, b) => (a.price_amount ?? 0) - (b.price_amount ?? 0));
+  if (priced.length === 0) return "Price TBC";
+  const best = priced[0];
+  const prefix = best.price_type === "from" ? "From " : "";
+  return `${prefix}£${best.price_amount!.toFixed(0)}`;
 }
 
 interface DashboardData {
@@ -34,6 +50,7 @@ interface DashboardData {
   matchCount: number;
   sentCount: number;
   featured: FeaturedMatch[];
+  bigStoryHeadline: string | null;
 }
 
 const HYPE_LINES = [
@@ -81,6 +98,7 @@ export default function Home() {
     matchCount: 0,
     sentCount: 0,
     featured: [],
+    bigStoryHeadline: null,
   });
   const [loading, setLoading] = useState(true);
   const [manualName, setManualName] = useState("");
@@ -88,7 +106,7 @@ export default function Home() {
 
   useEffect(() => {
     async function load() {
-      const [userRes, artistsRes, eventsRes, alertsRes] = await Promise.all([
+      const [userRes, artistsRes, eventsRes, alertsRes, bigStoryRes] = await Promise.all([
         fetch("/api/auth/me").then((r) => r.json()),
         fetch("/api/artists")
           .then((r) => r.json())
@@ -99,24 +117,13 @@ export default function Home() {
         fetch("/api/alerts")
           .then((r) => r.json())
           .catch(() => ({ alerts: [] })),
+        fetch("/api/big-story")
+          .then((r) => r.json())
+          .catch(() => ({ bigStory: null, featured: [] })),
       ]);
 
       const alerts = alertsRes.alerts || [];
-      const eligible = alerts
-        .filter(
-          (a: FeaturedMatch & { status: string }) =>
-            (a.status === "eligible" || a.status === "sent") && a.events
-        )
-        .sort((a: FeaturedMatch, b: FeaturedMatch) => {
-          const dateA = a.events.starts_at
-            ? new Date(a.events.starts_at).getTime()
-            : Infinity;
-          const dateB = b.events.starts_at
-            ? new Date(b.events.starts_at).getTime()
-            : Infinity;
-          if (dateA !== dateB) return dateA - dateB;
-          return b.score - a.score;
-        });
+      const featured = (bigStoryRes.featured || []) as FeaturedMatch[];
 
       setData({
         user: userRes.user,
@@ -129,7 +136,8 @@ export default function Home() {
         sentCount: alerts.filter(
           (a: { status: string }) => a.status === "sent"
         ).length,
-        featured: eligible.slice(0, 5),
+        featured,
+        bigStoryHeadline: bigStoryRes.bigStory?.headline || null,
       });
       setLoading(false);
     }
@@ -241,7 +249,7 @@ export default function Home() {
       </div>
 
       {bigStory ? (
-        <BigStoryCard match={bigStory} totalMatches={data.matchCount} />
+        <BigStoryCard match={bigStory} totalMatches={data.matchCount} headline={data.bigStoryHeadline} />
       ) : (
         <div className="rounded-xl border-2 border-dashed border-border bg-surface p-8 text-center">
           <p className="text-lg font-medium mb-1">No matches yet</p>
@@ -335,19 +343,9 @@ export default function Home() {
   );
 }
 
-function BigStoryCard({ match, totalMatches }: { match: FeaturedMatch; totalMatches: number }) {
+function BigStoryCard({ match, totalMatches, headline }: { match: FeaturedMatch; totalMatches: number; headline: string | null }) {
   const event = match.events;
-  const offers = event.event_offers || [];
-  const priced = offers
-    .filter((o) => o.price_amount != null)
-    .sort((a, b) => (a.price_amount ?? 0) - (b.price_amount ?? 0));
-
-  let priceLabel = "Price TBA";
-  if (priced.length > 0) {
-    const best = priced[0];
-    const prefix = best.price_type === "from" ? "From " : "";
-    priceLabel = `${prefix}£${best.price_amount!.toFixed(2)}`;
-  }
+  const priceLabel = formatPrice(event.event_offers || []);
 
   let dateLabel = "Date TBA";
   if (event.starts_at) {
@@ -365,69 +363,75 @@ function BigStoryCard({ match, totalMatches }: { match: FeaturedMatch; totalMatc
   const isTribute = event.event_type === "tribute_concert" || event.event_type === "recurring_experience";
 
   return (
-    <div className="relative rounded-xl bg-gradient-to-br from-accent via-accent-hover to-accent overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.12),transparent_60%)]" />
+    <div className="relative rounded-xl overflow-hidden bg-gradient-to-br from-[#1a1a22] via-[#2a2535] to-[#1a1a22] dark:from-[#0d0c12] dark:via-[#1a1725] dark:to-[#0d0c12]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(196,151,59,0.15),transparent_60%)]" />
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-gold to-transparent" />
       <div className="relative p-6 sm:p-8 text-white">
         <div className="flex items-center gap-2 mb-4">
-          <span className="text-xs font-mono uppercase tracking-widest opacity-80">
-            Big story
+          <span className="text-xs font-mono uppercase tracking-widest text-gold">
+            Big story of the day
           </span>
           {urgency && (
-            <span className="text-xs font-bold bg-white/20 backdrop-blur-sm px-2 py-0.5 rounded-full">
+            <span className="text-xs font-bold bg-gold/20 text-gold px-2 py-0.5 rounded-full">
               {urgency}
             </span>
           )}
           {isTribute && (
-            <span className="text-xs font-mono bg-gold/30 text-white px-2 py-0.5 rounded-full">
+            <span className="text-xs font-mono bg-white/10 text-white/70 px-2 py-0.5 rounded-full">
               Tribute
             </span>
           )}
         </div>
 
-        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
+        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1">
           {event.title}
         </h2>
 
-        <p className="text-white/80 text-sm sm:text-base mb-4">
-          {event.venue_name}
+        <p className="text-2xl font-bold text-gold mt-2 mb-3">
+          {priceLabel}
+        </p>
+
+        <p className="text-white/70 text-sm sm:text-base mb-4">
+          {event.venue_name || "Venue TBA"}
           {event.venue_city && ` · ${event.venue_city}`}
           {" · "}
           {dateLabel}
         </p>
 
-        <p className="text-lg sm:text-xl font-medium italic mb-5 text-white/90">
-          &ldquo;{hype}&rdquo;
+        <p className="text-base sm:text-lg font-medium italic mb-5 text-white/60">
+          &ldquo;{headline || hype}&rdquo;
         </p>
 
-        <div className="flex flex-wrap items-center gap-3 mb-5">
-          <span className="text-sm font-bold bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg">
-            {priceLabel}
-          </span>
-          <span className="text-sm bg-white/10 px-3 py-1 rounded-lg">
-            Score {match.score}
-          </span>
+        <div className="flex flex-wrap items-center gap-2 mb-5">
           {match.reasons.slice(0, 2).map((r, i) => (
-            <span key={i} className="text-xs bg-white/10 px-2 py-1 rounded-lg">
+            <span key={i} className="text-xs bg-white/10 text-white/80 px-2 py-1 rounded-lg">
               {r}
             </span>
           ))}
+          <span className="text-xs bg-white/10 text-white/60 px-2 py-1 rounded-lg">
+            Score {match.score}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {event.official_url && (
+          {event.official_url ? (
             <a
               href={event.official_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 bg-white text-accent font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-white/90 transition-colors"
+              className="inline-flex items-center gap-1.5 bg-gold text-[#1a1a22] font-semibold text-sm px-5 py-2.5 rounded-lg hover:brightness-110 transition-all"
             >
               Lock in tickets →
             </a>
+          ) : (
+            <span className="text-sm text-white/50 italic">
+              Purchase link unavailable
+            </span>
           )}
           {totalMatches > 1 && (
             <Link
               href="/alerts"
-              className="text-sm text-white/80 hover:text-white transition-colors"
+              className="text-sm text-white/60 hover:text-white transition-colors"
             >
               +{totalMatches - 1} more match{totalMatches - 1 === 1 ? "" : "es"}
             </Link>
@@ -440,17 +444,7 @@ function BigStoryCard({ match, totalMatches }: { match: FeaturedMatch; totalMatc
 
 function CompactMatchCard({ match }: { match: FeaturedMatch }) {
   const event = match.events;
-  const offers = event.event_offers || [];
-  const priced = offers
-    .filter((o) => o.price_amount != null)
-    .sort((a, b) => (a.price_amount ?? 0) - (b.price_amount ?? 0));
-
-  let priceLabel = "Price TBA";
-  if (priced.length > 0) {
-    const best = priced[0];
-    const prefix = best.price_type === "from" ? "From " : "";
-    priceLabel = `${prefix}£${best.price_amount!.toFixed(2)}`;
-  }
+  const priceLabel = formatPrice(event.event_offers || []);
 
   let dateLabel = "Date TBA";
   if (event.starts_at) {
@@ -477,14 +471,14 @@ function CompactMatchCard({ match }: { match: FeaturedMatch }) {
             )}
           </div>
           <h3 className="font-medium truncate">{event.title}</h3>
+          <p className="text-lg font-bold mt-0.5">{priceLabel}</p>
           <p className="text-sm text-muted truncate">
-            {event.venue_name}
+            {event.venue_name || "Venue TBA"}
             {event.venue_city && ` · ${event.venue_city}`}
             {" · "}
             {dateLabel}
           </p>
         </div>
-        <span className="text-sm font-medium whitespace-nowrap">{priceLabel}</span>
       </div>
       <div className="flex flex-wrap gap-1">
         {match.reasons.slice(0, 2).map((r, i) => (
@@ -496,7 +490,7 @@ function CompactMatchCard({ match }: { match: FeaturedMatch }) {
           </span>
         ))}
       </div>
-      {event.official_url && (
+      {event.official_url ? (
         <a
           href={event.official_url}
           target="_blank"
@@ -505,6 +499,8 @@ function CompactMatchCard({ match }: { match: FeaturedMatch }) {
         >
           Get tickets →
         </a>
+      ) : (
+        <span className="text-xs text-muted italic">Purchase link unavailable</span>
       )}
     </div>
   );

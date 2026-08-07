@@ -3,6 +3,14 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { CardSkeleton, Skeleton, Spinner } from "@/components/loading";
 
+interface EventOffer {
+  price_amount: number | null;
+  price_currency: string;
+  price_type: string | null;
+  seat_quality: string;
+  seller: string | null;
+}
+
 interface AlertCandidate {
   id: string;
   alert_type: string;
@@ -21,6 +29,9 @@ interface AlertCandidate {
     venue_city: string | null;
     starts_at: string | null;
     official_url: string | null;
+    provider: string | null;
+    observed_at: string | null;
+    event_offers: EventOffer[];
   };
   message_deliveries: {
     id: string;
@@ -29,6 +40,24 @@ interface AlertCandidate {
     preview_text: string | null;
     sent_at: string | null;
   }[];
+}
+
+function formatPrice(offers: EventOffer[]): { label: string; type: "available" | "tbc" | "unavailable" } {
+  if (!offers || offers.length === 0) return { label: "Price TBC", type: "tbc" };
+  const priced = offers
+    .filter((o) => o.price_amount != null)
+    .sort((a, b) => (a.price_amount ?? 0) - (b.price_amount ?? 0));
+  if (priced.length === 0) return { label: "Price TBC", type: "tbc" };
+  const best = priced[0];
+  const prefix = best.price_type === "from" ? "From " : "";
+  return { label: `${prefix}£${best.price_amount!.toFixed(0)}`, type: "available" };
+}
+
+function ticketState(event: AlertCandidate["events"]): { label: string; action: "link" | "none"; color: string } {
+  if (!event) return { label: "Event details unavailable", action: "none", color: "text-muted" };
+  if (event.official_url) return { label: "Tickets", action: "link", color: "" };
+  if (event.event_type === "tour_announcement") return { label: "Tickets not yet on sale", action: "none", color: "text-gold" };
+  return { label: "Purchase link unavailable", action: "none", color: "text-muted" };
 }
 
 function getMonth(dateStr: string | null): string | null {
@@ -293,6 +322,8 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
   const delivery = alert.message_deliveries?.[0];
 
   const isTribute = event?.event_type === "tribute_concert" || event?.event_type === "recurring_experience";
+  const price = formatPrice(event?.event_offers || []);
+  const ticket = ticketState(event);
 
   const statusColors: Record<string, string> = {
     eligible: "bg-accent/10 text-accent",
@@ -308,46 +339,58 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
     watching_for_dates: "Watching",
   };
 
+  let dateLabel = "Date TBA";
+  if (event?.starts_at) {
+    dateLabel = new Date(event.starts_at).toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  }
+
+  const verifiedAgo = event?.observed_at
+    ? formatTimeAgo(new Date(event.observed_at))
+    : null;
+
   return (
-    <div className="rounded-lg border border-border bg-surface p-4 space-y-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span
-              className={`text-xs font-mono px-1.5 py-0.5 rounded ${
-                statusColors[alert.status] || "bg-surface-alt text-muted"
-              }`}
-            >
-              {statusLabels[alert.status] || alert.status}
-            </span>
-            {isTribute && (
-              <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-gold/20 text-gold">
-                Tribute
-              </span>
-            )}
-            <span className="text-xs text-muted font-mono">
-              Score {alert.score}
-            </span>
-          </div>
-          <h3 className="font-medium">{event?.title || "Unknown event"}</h3>
-          <p className="text-sm text-muted">
-            {event?.venue_name}
-            {event?.venue_city && ` · ${event.venue_city}`}
-            {event?.starts_at && ` · ${new Date(event.starts_at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`}
-          </p>
-        </div>
-        {event?.official_url && (
-          <a
-            href={event.official_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 text-xs bg-accent text-white px-3 py-1.5 rounded-lg hover:bg-accent-hover transition-colors"
-          >
-            Tickets
-          </a>
+    <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+      {/* Row 1: Status badges */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`text-xs font-mono px-1.5 py-0.5 rounded ${
+            statusColors[alert.status] || "bg-surface-alt text-muted"
+          }`}
+        >
+          {statusLabels[alert.status] || alert.status}
+        </span>
+        {isTribute && (
+          <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-gold/20 text-gold">
+            Tribute
+          </span>
         )}
+        <span className="text-xs text-muted font-mono">
+          Score {alert.score}
+        </span>
       </div>
 
+      {/* Row 2: Title */}
+      <h3 className="font-semibold text-base leading-snug">{event?.title || "Unknown event"}</h3>
+
+      {/* Row 3: Price (large) */}
+      <p className={`text-xl font-bold ${price.type === "available" ? "text-foreground" : "text-muted"}`}>
+        {price.label}
+      </p>
+
+      {/* Row 4: Venue · Date · City */}
+      <div className="text-sm text-muted space-y-0.5">
+        <p>
+          {event?.venue_name || "Venue TBA"}
+          {event?.venue_city && ` · ${event.venue_city}`}
+        </p>
+        <p>{dateLabel}</p>
+      </div>
+
+      {/* Row 5: Match explanation */}
       {alert.reasons.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {alert.reasons.map((r, i) => (
@@ -361,6 +404,7 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
         </div>
       )}
 
+      {/* Row 6: Warnings */}
       {alert.warnings.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {alert.warnings.map((w, i) => (
@@ -374,6 +418,33 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
         </div>
       )}
 
+      {/* Row 7: Ticket action + trust metadata */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border">
+        <div>
+          {ticket.action === "link" && event?.official_url ? (
+            <a
+              href={event.official_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm bg-accent text-white px-4 py-1.5 rounded-lg hover:bg-accent-hover transition-colors font-medium"
+            >
+              Tickets →
+            </a>
+          ) : (
+            <span className={`text-xs italic ${ticket.color}`}>{ticket.label}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted">
+          {event?.provider && (
+            <span className="capitalize">{event.provider}</span>
+          )}
+          {verifiedAgo && (
+            <span>Verified {verifiedAgo}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Alert preview (expandable) */}
       {delivery?.preview_text && (
         <div>
           <button
@@ -393,4 +464,16 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
       )}
     </div>
   );
+}
+
+function formatTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffHours < 1) return "just now";
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }

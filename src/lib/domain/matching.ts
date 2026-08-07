@@ -249,6 +249,11 @@ function findArtistMatch(
 
     const boundary = followedArtists.find((a) => {
       if (a.relationship === "remove" || a.name.length < 4) return false;
+      if (a.name.length <= 6) {
+        const escaped = a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`(^|[,&;|/]\\s*)${escaped}(\\s*[,&;|/]|$)`, "i");
+        return re.test(candidate);
+      }
       const escaped = a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const re = new RegExp(`(^|[\\s,\\-—(])${escaped}([\\s,\\-—)!?]|$)`, "i");
       return re.test(candidate);

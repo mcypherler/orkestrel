@@ -275,17 +275,19 @@ export async function deliverAlerts(userId: string): Promise<{
 
   // Ask OpenAI to pick the big story of the day
   const bigStory = await pickBigStory(
-    prepared.map((p, i) => ({
+    candidates.map((c, i) => ({
       index: i,
-      title: p.eventTitle,
-      artistName: p.artistName,
-      eventType: p.eventType,
-      venueName: p.venueName,
-      venueCity: p.venueCity,
-      startsAt: p.startsAt,
-      score: p.score,
-      reasons: p.reasons,
-      priceLabel: p.priceLabel,
+      title: (c.events as Record<string, unknown>)?.title as string || "",
+      artistName: (c.events as Record<string, unknown>)?.artist_name as string | null,
+      eventType: (c.events as Record<string, unknown>)?.event_type as string || "",
+      venueName: (c.events as Record<string, unknown>)?.venue_name as string | null,
+      venueCity: (c.events as Record<string, unknown>)?.venue_city as string | null,
+      startsAt: (c.events as Record<string, unknown>)?.starts_at as string | null,
+      score: prepared[i]?.score || 0,
+      reasons: prepared[i]?.reasons || [],
+      priceLabel: prepared[i]?.priceLabel || "Price TBC",
+      status: c.status as string,
+      createdAt: c.created_at as string,
     }))
   );
 
