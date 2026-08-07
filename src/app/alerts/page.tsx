@@ -24,6 +24,9 @@ interface AlertCandidate {
     explanation?: string;
     reasonCodes?: string[];
     semanticFit?: number;
+    confidence?: number;
+    reasoning?: string;
+    matchedArtist?: string;
   } | null;
   created_at: string;
   events: {
@@ -83,6 +86,7 @@ export default function AlertsPage() {
   const [status, setStatus] = useState<string | null>(null);
 
   const [typeFilter, setTypeFilter] = useState<"all" | "original" | "tribute">("all");
+  const [laneFilter, setLaneFilter] = useState<"all" | "regex" | "ai_classify" | "semantic">("all");
   const [cityFilter, setCityFilter] = useState<string>("all");
   const [monthFilter, setMonthFilter] = useState<string>("all");
 
@@ -120,25 +124,38 @@ export default function AlertsPage() {
     });
   }, [alerts]);
 
+  const lanes = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of alerts) {
+      if (a.match_lane) set.add(a.match_lane);
+    }
+    return Array.from(set).sort();
+  }, [alerts]);
+
   const filtered = useMemo(() => {
     return alerts.filter((a) => {
       if (typeFilter === "original" && (a.events?.event_type === "tribute_concert" || a.events?.event_type === "recurring_experience")) return false;
       if (typeFilter === "tribute" && a.events?.event_type !== "tribute_concert" && a.events?.event_type !== "recurring_experience") return false;
+      if (laneFilter !== "all" && a.match_lane !== laneFilter) return false;
       if (cityFilter !== "all" && a.events?.venue_city !== cityFilter) return false;
       if (monthFilter !== "all" && getMonth(a.events?.starts_at) !== monthFilter) return false;
       return true;
     });
-  }, [alerts, typeFilter, cityFilter, monthFilter]);
+  }, [alerts, typeFilter, laneFilter, cityFilter, monthFilter]);
 
   async function handleMatch() {
     setMatching(true);
     setStatus(null);
     const res = await fetch("/api/alerts/match", { method: "POST" });
     const data = await res.json();
-    const aiNote = data.aiMatched > 0 ? ` (${data.aiMatched} via AI)` : "";
-    const semanticNote = data.semanticMatched > 0 ? ` (${data.semanticMatched} taste matches)` : "";
+    const aiNote = data.aiMatched > 0 ? ` · ${data.aiMatched} via AI` : "";
+    const semanticNote = data.semanticMatched > 0 ? ` · ${data.semanticMatched} taste matches` : "";
+    const semanticStatsNote = data.semanticStats
+      ? ` · Semantic: ${data.semanticStats.eventsShortlisted} shortlisted, $${data.semanticStats.estimatedCostUsd.toFixed(4)} cost`
+      : "";
+    const semanticModeNote = data.semanticEnabled ? "" : " · Taste matching: off";
     setStatus(
-      `Matched ${data.matched}${aiNote}${semanticNote}, rejected ${data.rejected}, watching ${data.watching}`
+      `Matched ${data.matched}${aiNote}${semanticNote}, rejected ${data.rejected}, watching ${data.watching}${semanticStatsNote}${semanticModeNote}`
     );
     await fetchAlerts();
     setMatching(false);
@@ -191,7 +208,7 @@ export default function AlertsPage() {
   const eligible = alerts.filter((a) => a.status === "eligible");
   const sent = alerts.filter((a) => a.status === "sent");
   const watching = alerts.filter((a) => a.status === "watching_for_dates");
-  const activeFilters = (typeFilter !== "all" ? 1 : 0) + (cityFilter !== "all" ? 1 : 0) + (monthFilter !== "all" ? 1 : 0);
+  const activeFilters = (typeFilter !== "all" ? 1 : 0) + (laneFilter !== "all" ? 1 : 0) + (cityFilter !== "all" ? 1 : 0) + (monthFilter !== "all" ? 1 : 0);
 
   return (
     <div className="space-y-5">
@@ -244,6 +261,15 @@ export default function AlertsPage() {
               <Pill active={typeFilter === "tribute"} onClick={() => setTypeFilter("tribute")}>Tribute</Pill>
             </FilterRow>
 
+            {lanes.length > 1 && (
+              <FilterRow label="Match">
+                <Pill active={laneFilter === "all"} onClick={() => setLaneFilter("all")}>All</Pill>
+                {lanes.includes("regex") && <Pill active={laneFilter === "regex"} onClick={() => setLaneFilter("regex")}>Direct</Pill>}
+                {lanes.includes("ai_classify") && <Pill active={laneFilter === "ai_classify"} onClick={() => setLaneFilter("ai_classify")}>AI</Pill>}
+                {lanes.includes("semantic") && <Pill active={laneFilter === "semantic"} onClick={() => setLaneFilter("semantic")}>Taste</Pill>}
+              </FilterRow>
+            )}
+
             {cities.length > 1 && (
               <FilterRow label="Location">
                 <Pill active={cityFilter === "all"} onClick={() => setCityFilter("all")}>All</Pill>
@@ -267,7 +293,7 @@ export default function AlertsPage() {
             <p className="text-xs text-muted">
               Showing {filtered.length} of {alerts.length} alerts
               <button
-                onClick={() => { setTypeFilter("all"); setCityFilter("all"); setMonthFilter("all"); }}
+                onClick={() => { setTypeFilter("all"); setLaneFilter("all"); setCityFilter("all"); setMonthFilter("all"); }}
                 className="ml-2 text-accent hover:text-accent-hover"
               >
                 Clear filters
@@ -376,6 +402,16 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
             Taste match
           </span>
         )}
+        {alert.match_lane === "ai_classify" && (
+          <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+            AI match
+          </span>
+        )}
+        {alert.match_lane === "regex" && (
+          <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-surface-alt text-muted">
+            Direct
+          </span>
+        )}
         {isTribute && (
           <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-gold/20 text-gold">
             Tribute
@@ -420,10 +456,55 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
       )}
 
       {/* Semantic match evidence */}
-      {alert.match_lane === "semantic" && alert.match_evidence?.explanation && (
-        <p className="text-xs text-muted italic">
-          {alert.match_evidence.explanation}
-        </p>
+      {alert.match_lane === "semantic" && alert.match_evidence && (
+        <div className="space-y-2 bg-gold/5 rounded-lg p-3 border border-gold/10">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-gold shrink-0">Taste fit</span>
+            <div className="flex-1 h-1.5 bg-gold/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gold rounded-full transition-all"
+                style={{ width: `${Math.round((alert.match_evidence.semanticFit ?? 0) * 100)}%` }}
+              />
+            </div>
+            <span className="text-xs font-bold text-gold tabular-nums shrink-0">
+              {Math.round((alert.match_evidence.semanticFit ?? 0) * 100)}%
+            </span>
+          </div>
+          {alert.match_evidence.supportingArtists && alert.match_evidence.supportingArtists.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {alert.match_evidence.supportingArtists.map((a, i) => (
+                <span key={i} className="inline-flex items-center gap-1 text-xs bg-gold/10 text-gold/90 px-1.5 py-0.5 rounded">
+                  {a.name}
+                  <span className="text-gold/60 font-mono">{Math.round(a.similarity * 100)}%</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {alert.match_evidence.explanation && (
+            <p className="text-xs text-muted italic">{alert.match_evidence.explanation}</p>
+          )}
+        </div>
+      )}
+
+      {/* AI match confidence */}
+      {alert.match_lane === "ai_classify" && alert.match_evidence && (
+        <div className="space-y-1 bg-accent/5 rounded-lg p-3 border border-accent/10">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-accent/70 shrink-0">AI confidence</span>
+            <div className="flex-1 h-1.5 bg-accent/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent rounded-full transition-all"
+                style={{ width: `${Math.round((alert.match_evidence.confidence ?? 0) * 100)}%` }}
+              />
+            </div>
+            <span className="text-xs font-bold text-accent tabular-nums shrink-0">
+              {Math.round((alert.match_evidence.confidence ?? 0) * 100)}%
+            </span>
+          </div>
+          {alert.match_evidence.reasoning && (
+            <p className="text-xs text-muted italic">{alert.match_evidence.reasoning}</p>
+          )}
+        </div>
       )}
 
       {/* Row 6: Warnings */}

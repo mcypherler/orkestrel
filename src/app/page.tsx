@@ -412,7 +412,7 @@ function BigStoryCard({ match, totalMatches, headline }: { match: FeaturedMatch;
           &ldquo;{headline || hype}&rdquo;
         </p>
 
-        <div className="flex flex-wrap items-center gap-2 mb-5">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           {match.reasons.slice(0, 2).map((r, i) => (
             <span key={i} className="text-xs bg-white/10 text-white/80 px-2 py-1 rounded-lg">
               {r}
@@ -422,6 +422,27 @@ function BigStoryCard({ match, totalMatches, headline }: { match: FeaturedMatch;
             Score {match.score}
           </span>
         </div>
+
+        {match.match_lane === "semantic" && match.match_evidence && (
+          <div className="flex items-center gap-3 mb-5">
+            <span className="text-xs font-mono text-gold/80 shrink-0">Taste fit</span>
+            <div className="flex-1 max-w-[180px] h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gold rounded-full"
+                style={{ width: `${Math.round((match.match_evidence.supportingArtists?.[0]?.similarity ?? 0) * 100)}%` }}
+              />
+            </div>
+            {match.match_evidence.supportingArtists && match.match_evidence.supportingArtists.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {match.match_evidence.supportingArtists.slice(0, 2).map((a, i) => (
+                  <span key={i} className="text-xs text-gold/70 font-mono">
+                    {a.name} {Math.round(a.similarity * 100)}%
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-3">
           {event.official_url ? (
@@ -498,13 +519,26 @@ function CompactMatchCard({ match }: { match: FeaturedMatch }) {
           <span
             key={i}
             className={`text-xs px-1.5 py-0.5 rounded ${
-              match.match_lane === "semantic" ? "bg-gold/10 text-gold" : "bg-accent/10 text-accent"
+              match.match_lane === "semantic" ? "bg-gold/10 text-gold" : match.match_lane === "ai_classify" ? "bg-accent/10 text-accent" : "bg-accent/10 text-accent"
             }`}
           >
             {r}
           </span>
         ))}
       </div>
+      {match.match_lane === "semantic" && match.match_evidence?.supportingArtists && (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-1 bg-gold/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gold rounded-full"
+              style={{ width: `${Math.round((match.match_evidence.supportingArtists[0]?.similarity ?? 0) * 100)}%` }}
+            />
+          </div>
+          <span className="text-xs font-mono text-gold">
+            {Math.round((match.match_evidence.supportingArtists[0]?.similarity ?? 0) * 100)}%
+          </span>
+        </div>
+      )}
       {event.official_url ? (
         <a
           href={event.official_url}

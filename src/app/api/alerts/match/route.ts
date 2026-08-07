@@ -9,5 +9,9 @@ export async function POST() {
   }
 
   const result = await runMatchingForUser(session.userId);
-  return NextResponse.json(result);
+  return NextResponse.json({
+    ...result,
+    semanticEnabled: (process.env.SEMANTIC_MATCHING_MODE || "off") !== "off",
+    semanticMode: process.env.SEMANTIC_MATCHING_MODE || "off",
+  });
 }

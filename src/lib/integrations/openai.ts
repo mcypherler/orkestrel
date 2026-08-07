@@ -25,30 +25,6 @@ function hashArtistList(artists: string[]): string {
   return createHash("sha256").update(sorted.join("\0")).digest("hex").slice(0, 16);
 }
 
-const SYSTEM_PROMPT = `You match music events to a user's followed artists. Given an event and a list of followed artists, determine if the event is relevant to any of them.
-
-Match when:
-- The event features a followed artist (same real-world person or group)
-- The event artist is a verified alias, side project, or current/former band member of a followed artist (you must be certain of this musical relationship)
-- The event title references a followed artist's specific album, tour, or signature song
-- The performer is a known tribute act for a followed artist
-
-Do NOT match when:
-- Two artists merely share a first name, last name, or word in their name (e.g. Roger Taylor is NOT Taylor Swift; James Brown is NOT James Bay; The Weeknd is NOT Weekend Wars)
-- The connection is only a shared genre, era, or musical style
-- The artist name appears as a substring of an unrelated name
-- You are not certain the artists are musically related — when in doubt, do NOT match
-
-Classify your confidence:
-- 0.9-1.0 = Strong Match (same artist, confirmed alias, or official tribute)
-- 0.7-0.85 = Plausible Discovery (confirmed side project, ex-band member, or clearly related)
-- 0.3-0.65 = Weak Match (same genre, vague connection — do NOT match)
-- 0-0.25 = No Relationship
-
-Only return matched:true for Strong Match or Plausible Discovery (confidence >= 0.7).
-
-Respond with JSON: {"matched": boolean, "artistName": string|null, "confidence": number 0-1, "reasoning": string (max 20 words)}`;
-
 const BATCH_SYSTEM_PROMPT = `You match music events to a user's followed artists. For each numbered event, determine if it is relevant to any followed artist.
 
 Match when:
@@ -77,62 +53,6 @@ function formatEventDesc(req: ArtistMatchRequest): string {
   ]
     .filter(Boolean)
     .join("\n");
-}
-
-export async function classifyArtistMatch(
-  request: ArtistMatchRequest
-): Promise<ArtistMatchResponse> {
-  const apiKey = process.env.OPENAI_API_SECRET;
-  if (!apiKey) {
-    return { matched: false, artistName: null, confidence: 0, reasoning: "OPENAI_API_SECRET not configured" };
-  }
-
-  if (request.followedArtists.length === 0) {
-    return { matched: false, artistName: null, confidence: 0, reasoning: "No followed artists" };
-  }
-
-  const res = await fetch(OPENAI_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0,
-      max_tokens: 150,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Event:\n${formatEventDesc(request)}\n\nFollowed artists: ${request.followedArtists.join(", ")}`,
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    return { matched: false, artistName: null, confidence: 0, reasoning: `OpenAI API error: ${res.status}` };
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    return { matched: false, artistName: null, confidence: 0, reasoning: "Empty OpenAI response" };
-  }
-
-  try {
-    const parsed = JSON.parse(content) as ArtistMatchResponse;
-    return {
-      matched: parsed.matched && parsed.confidence >= 0.7,
-      artistName: parsed.artistName,
-      confidence: parsed.confidence,
-      reasoning: parsed.reasoning,
-    };
-  } catch {
-    return { matched: false, artistName: null, confidence: 0, reasoning: "Failed to parse OpenAI response" };
-  }
 }
 
 interface CachedResult {

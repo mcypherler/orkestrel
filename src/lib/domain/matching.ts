@@ -452,6 +452,13 @@ export async function runMatchingForUser(userId: string): Promise<{
         warnings: result.warnings,
         status: result.status,
         match_lane: "ai_classify",
+        match_evidence: aiResult.matched
+          ? {
+              confidence: aiResult.confidence,
+              reasoning: aiResult.reasoning,
+              matchedArtist: aiResult.artistName,
+            }
+          : null,
       });
 
       if (result.status === "eligible") {
