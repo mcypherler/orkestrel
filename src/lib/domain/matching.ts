@@ -1,5 +1,7 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { classifyArtistMatchBatchCached } from "@/lib/integrations/openai";
+import { runSemanticMatching } from "@/lib/domain/semantic-matching";
+import type { SemanticResult } from "@/lib/domain/semantic-matching";
 
 interface MatchEvent {
   id: string;
@@ -40,7 +42,10 @@ interface MatchInput {
     relationship: string;
   }[];
   aiMatchedArtist?: string | null;
+  semanticMatch?: SemanticResult | null;
 }
+
+type SemanticMode = "off" | "shadow" | "ranked" | "notify";
 
 interface MatchResult {
   eligible: boolean;
@@ -120,10 +125,18 @@ export function matchEvent(input: MatchInput): MatchResult {
     } else {
       reasons.push(`AI matched: ${input.aiMatchedArtist}`);
     }
+  } else if (input.semanticMatch && input.semanticMatch.decision === "recommend" && input.semanticMatch.semanticFit >= 0.7) {
+    score += 25;
+    const topNames = input.semanticMatch.supportingArtists
+      .slice(0, 2)
+      .map((a) => a.name)
+      .join(", ");
+    reasons.push(`Taste match: because you like ${topNames}`);
   }
 
+  const hasSemanticMatch = input.semanticMatch?.decision === "recommend" && (input.semanticMatch?.semanticFit ?? 0) >= 0.7;
   if (
-    (artistMatch || input.aiMatchedArtist) &&
+    (artistMatch || input.aiMatchedArtist || hasSemanticMatch) &&
     (event.event_type === "tribute_concert" || event.event_type === "recurring_experience")
   ) {
     score -= 20;
@@ -205,12 +218,12 @@ export function matchEvent(input: MatchInput): MatchResult {
     warnings.push("Availability must be checked");
   }
 
-  const hasArtistMatch = !!artistMatch || !!input.aiMatchedArtist;
+  const hasAnyMatch = !!artistMatch || !!input.aiMatchedArtist || hasSemanticMatch;
   return {
-    eligible: !rejected && hasArtistMatch && score > 0,
+    eligible: !rejected && hasAnyMatch && score > 0,
     score,
     alertType: "new_event",
-    status: rejected ? "rejected" : hasArtistMatch && score > 0 ? "eligible" : "rejected",
+    status: rejected ? "rejected" : hasAnyMatch && score > 0 ? "eligible" : "rejected",
     reasons,
     warnings,
   };
@@ -301,14 +314,22 @@ export async function runMatchingForUser(userId: string): Promise<{
   rejected: number;
   watching: number;
   aiMatched: number;
+  semanticMatched: number;
+  semanticStats: {
+    embeddingsCached: number;
+    embeddingsGenerated: number;
+    eventsShortlisted: number;
+    estimatedCostUsd: number;
+  } | null;
 }> {
   const supabase = createServerClient();
+  const semanticMode = (process.env.SEMANTIC_MATCHING_MODE || "off") as SemanticMode;
 
   const [prefsRes, artistsRes, eventsRes] = await Promise.all([
     supabase.from("preferences").select("*").eq("user_id", userId).single(),
     supabase
       .from("user_artists")
-      .select("artists(name), relationship")
+      .select("artists(id, name, genres), relationship, spotify_score")
       .eq("user_id", userId)
       .neq("relationship", "remove"),
     supabase
@@ -319,12 +340,13 @@ export async function runMatchingForUser(userId: string): Promise<{
   ]);
 
   if (!prefsRes.data || !eventsRes.data) {
-    return { matched: 0, rejected: 0, watching: 0, aiMatched: 0 };
+    return { matched: 0, rejected: 0, watching: 0, aiMatched: 0, semanticMatched: 0, semanticStats: null };
   }
 
   const prefs = prefsRes.data;
-  const followedArtists = (artistsRes.data || []).map((ua) => ({
-    name: (ua.artists as unknown as { name: string })?.name || "",
+  const rawArtists = artistsRes.data || [];
+  const followedArtists = rawArtists.map((ua) => ({
+    name: (ua.artists as unknown as { id: string; name: string; genres: string[] })?.name || "",
     relationship: ua.relationship as string,
   }));
   const artistNames = followedArtists.map((a) => a.name).filter(Boolean);
@@ -333,6 +355,7 @@ export async function runMatchingForUser(userId: string): Promise<{
   let rejected = 0;
   let watching = 0;
   let aiMatched = 0;
+  let semanticMatched = 0;
 
   // Pass 1: regex matching
   const unmatchedEvents: { event: MatchEvent; offers: MatchInput["offers"] }[] = [];
@@ -379,6 +402,7 @@ export async function runMatchingForUser(userId: string): Promise<{
         reasons: result.reasons,
         warnings: result.warnings,
         status: result.status,
+        match_lane: "regex",
       });
 
       if (result.status === "eligible") matched++;
@@ -427,6 +451,7 @@ export async function runMatchingForUser(userId: string): Promise<{
         reasons: result.reasons,
         warnings: result.warnings,
         status: result.status,
+        match_lane: "ai_classify",
       });
 
       if (result.status === "eligible") {
@@ -441,5 +466,121 @@ export async function runMatchingForUser(userId: string): Promise<{
     rejected += unmatchedEvents.length;
   }
 
-  return { matched, rejected, watching, aiMatched };
+  // Pass 3: Semantic discovery (feature-flag gated)
+  let semanticStats: {
+    embeddingsCached: number;
+    embeddingsGenerated: number;
+    eventsShortlisted: number;
+    estimatedCostUsd: number;
+  } | null = null;
+
+  if (semanticMode !== "off" && process.env.OPENAI_API_SECRET) {
+    // Collect events that are still unmatched after Pass 1 + Pass 2
+    const { data: matchedEventIds } = await supabase
+      .from("alert_candidates")
+      .select("event_id")
+      .eq("user_id", userId);
+
+    const matchedSet = new Set((matchedEventIds || []).map((r) => r.event_id));
+
+    const stillUnmatched = eventsRes.data
+      .filter((e) => !matchedSet.has(e.id))
+      .map((e) => ({
+        id: e.id as string,
+        title: e.title as string,
+        artistName: e.artist_name as string | null,
+        genres: (e.genres as string[]) || [],
+        lineup: (e.lineup as string[]) || [],
+        eventType: e.event_type as string,
+      }));
+
+    if (stillUnmatched.length > 0) {
+      const tasteArtists = rawArtists
+        .filter((ua) => {
+          const artist = ua.artists as unknown as { id: string; name: string; genres: string[] };
+          return artist?.name;
+        })
+        .map((ua) => {
+          const artist = ua.artists as unknown as { id: string; name: string; genres: string[] };
+          return {
+            id: artist.id,
+            name: artist.name,
+            genres: artist.genres || [],
+            spotifyScore: (ua.spotify_score as number) || 0,
+            relationship: ua.relationship as string,
+          };
+        });
+
+      try {
+        const { results, stats } = await runSemanticMatching(
+          userId,
+          tasteArtists,
+          stillUnmatched
+        );
+
+        semanticStats = {
+          embeddingsCached: stats.embeddingsCached,
+          embeddingsGenerated: stats.embeddingsGenerated,
+          eventsShortlisted: stats.eventsShortlisted,
+          estimatedCostUsd: stats.estimatedCostUsd,
+        };
+
+        const recommended = results.filter(
+          (r) => r.decision === "recommend" && r.semanticFit >= 0.7
+        );
+
+        for (const semantic of recommended) {
+          const event = eventsRes.data.find((e) => e.id === semantic.eventId);
+          if (!event) continue;
+
+          const typedEvent = event as MatchEvent;
+          const offers = (event.event_offers || []) as MatchInput["offers"];
+
+          const result = matchEvent({
+            event: typedEvent,
+            offers,
+            userPrefs: prefs as MatchInput["userPrefs"],
+            followedArtists,
+            semanticMatch: semantic,
+          });
+
+          if (result.status === "rejected") {
+            rejected++;
+            continue;
+          }
+
+          const candidateStatus = semanticMode === "shadow" ? "shadow" as const : result.status;
+
+          await supabase.from("alert_candidates").insert({
+            user_id: userId,
+            event_id: typedEvent.id,
+            alert_type: result.alertType,
+            score: result.score,
+            reasons: result.reasons,
+            warnings: result.warnings,
+            status: candidateStatus === "shadow" ? "rejected" : candidateStatus,
+            match_lane: "semantic",
+            match_evidence: {
+              decision: semantic.decision,
+              semanticFit: semantic.semanticFit,
+              supportingArtists: semantic.supportingArtists,
+              reasonCodes: semantic.reasonCodes,
+              explanation: semantic.explanation,
+              caveats: semantic.caveats,
+              mode: semanticMode,
+            },
+          });
+
+          if (candidateStatus !== "shadow" && result.status === "eligible") {
+            matched++;
+            semanticMatched++;
+          }
+        }
+      } catch (err) {
+        console.error("Semantic matching failed (degrading gracefully):", err);
+      }
+    }
+  }
+
+  return { matched, rejected, watching, aiMatched, semanticMatched, semanticStats };
 }

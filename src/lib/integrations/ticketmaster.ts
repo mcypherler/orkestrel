@@ -17,6 +17,8 @@ export interface NormalizedEvent {
   image_url: string | null;
   source_payload: Record<string, unknown> | null;
   observed_at: string;
+  genres: string[];
+  lineup: string[];
   offers: NormalizedOffer[];
 }
 
@@ -193,6 +195,26 @@ function normalizeTicketmasterEvent(
     ? (attractions[0].name as string)
     : null;
 
+  // Extract all attraction names as lineup
+  const lineup = attractions
+    .map((a) => a.name as string)
+    .filter(Boolean);
+
+  // Extract genre classifications
+  const classifications = (tm.classifications as Record<string, unknown>[]) || [];
+  const genreSet = new Set<string>();
+  for (const cls of classifications) {
+    const genre = cls.genre as Record<string, unknown> | undefined;
+    if (genre?.name && (genre.name as string) !== "Undefined") {
+      genreSet.add((genre.name as string).toLowerCase());
+    }
+    const subGenre = cls.subGenre as Record<string, unknown> | undefined;
+    if (subGenre?.name && (subGenre.name as string) !== "Undefined") {
+      genreSet.add((subGenre.name as string).toLowerCase());
+    }
+  }
+  const genres = Array.from(genreSet);
+
   let startsAt: string | null = null;
   if (startDate?.dateTime) {
     startsAt = startDate.dateTime as string;
@@ -247,6 +269,8 @@ function normalizeTicketmasterEvent(
     image_url: images.length > 0 ? (images[0].url as string) : null,
     source_payload: tm as Record<string, unknown>,
     observed_at: new Date().toISOString(),
+    genres,
+    lineup,
     offers,
   };
 }

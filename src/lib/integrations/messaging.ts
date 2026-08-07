@@ -14,6 +14,11 @@ interface AlertData {
   matchReasons: string[];
   warnings: string[];
   officialUrl: string | null;
+  matchLane?: string | null;
+  matchEvidence?: {
+    supportingArtists?: { name: string }[];
+    explanation?: string;
+  } | null;
 }
 
 export function formatAlertPreview(data: AlertData): string {
@@ -48,7 +53,13 @@ export function formatAlertPreview(data: AlertData): string {
 
   lines.push(locationParts.join(" · "));
   lines.push(`${data.priceLabel} · ${data.seatNote}`);
-  lines.push(`Why: ${data.matchReasons.join(", ")}`);
+
+  if (data.matchLane === "semantic" && data.matchEvidence?.supportingArtists?.length) {
+    const names = data.matchEvidence.supportingArtists.slice(0, 2).map((a) => a.name).join(", ");
+    lines.push(`Recommended because you like ${names}`);
+  } else {
+    lines.push(`Why: ${data.matchReasons.join(", ")}`);
+  }
 
   if (data.warnings.length > 0) {
     lines.push(data.warnings.join(" · "));
@@ -252,6 +263,8 @@ export async function deliverAlerts(userId: string): Promise<{
       matchReasons: (candidate.reasons as string[]) || [],
       warnings: (candidate.warnings as string[]) || [],
       officialUrl: event.official_url as string | null,
+      matchLane: candidate.match_lane as string | null,
+      matchEvidence: candidate.match_evidence as AlertData["matchEvidence"],
     };
 
     prepared.push({

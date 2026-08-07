@@ -91,6 +91,8 @@ export async function ingestEvents(
           image_url: event.image_url,
           source_payload: event.source_payload,
           observed_at: event.observed_at,
+          genres: event.genres || [],
+          lineup: event.lineup || [],
         })
         .eq("id", eventId);
 
@@ -130,6 +132,8 @@ export async function ingestEvents(
           image_url: event.image_url,
           source_payload: event.source_payload,
           observed_at: event.observed_at,
+          genres: event.genres || [],
+          lineup: event.lineup || [],
         })
         .select("id")
         .single();

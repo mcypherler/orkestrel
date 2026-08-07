@@ -75,8 +75,10 @@ export async function GET(request: NextRequest) {
     let totalMatched = 0;
     let totalRejected = 0;
     let totalAiMatched = 0;
+    let totalSemanticMatched = 0;
     let totalSent = 0;
     let totalFailed = 0;
+    let semanticStats: Record<string, unknown> | null = null;
     const userErrors: string[] = [];
 
     for (const user of users || []) {
@@ -85,6 +87,8 @@ export async function GET(request: NextRequest) {
         totalMatched += matchResult.matched;
         totalRejected += matchResult.rejected;
         totalAiMatched += matchResult.aiMatched;
+        totalSemanticMatched += matchResult.semanticMatched;
+        if (matchResult.semanticStats) semanticStats = matchResult.semanticStats;
 
         const deliveryResult = await deliverAlerts(user.id);
         totalSent += deliveryResult.sent + deliveryResult.previewed;
@@ -104,7 +108,13 @@ export async function GET(request: NextRequest) {
       runId,
       cities: Array.from(citySet),
       events: ingestResult,
-      matching: { matched: totalMatched, rejected: totalRejected, aiMatched: totalAiMatched },
+      matching: {
+        matched: totalMatched,
+        rejected: totalRejected,
+        aiMatched: totalAiMatched,
+        semanticMatched: totalSemanticMatched,
+        semanticStats,
+      },
       delivery: { sent: totalSent, failed: totalFailed },
       errors: userErrors.length > 0 ? userErrors : undefined,
       usersProcessed: (users || []).length,

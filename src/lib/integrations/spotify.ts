@@ -192,31 +192,35 @@ export async function syncArtistsFromSpotify(userId: string): Promise<{
 
   const artistScores = new Map<
     string,
-    { name: string; spotifyId: string; imageUrl: string | null; score: number }
+    { name: string; spotifyId: string; imageUrl: string | null; genres: string[]; score: number }
   >();
 
   function addArtist(
     spotifyId: string,
     name: string,
     imageUrl: string | null,
+    genres: string[],
     score: number
   ) {
     const existing = artistScores.get(spotifyId);
     if (existing) {
       existing.score += score;
+      if (genres.length > 0 && existing.genres.length === 0) {
+        existing.genres = genres;
+      }
     } else {
-      artistScores.set(spotifyId, { name, spotifyId, imageUrl, score });
+      artistScores.set(spotifyId, { name, spotifyId, imageUrl, genres, score });
     }
   }
 
   topShort.forEach((a, i) =>
-    addArtist(a.id, a.name, a.images[0]?.url ?? null, 30 - i * 0.5)
+    addArtist(a.id, a.name, a.images[0]?.url ?? null, a.genres || [], 30 - i * 0.5)
   );
   topMedium.forEach((a, i) =>
-    addArtist(a.id, a.name, a.images[0]?.url ?? null, 20 - i * 0.3)
+    addArtist(a.id, a.name, a.images[0]?.url ?? null, a.genres || [], 20 - i * 0.3)
   );
   topLong.forEach((a, i) =>
-    addArtist(a.id, a.name, a.images[0]?.url ?? null, 10 - i * 0.1)
+    addArtist(a.id, a.name, a.images[0]?.url ?? null, a.genres || [], 10 - i * 0.1)
   );
 
   const recentCounts = new Map<string, number>();
@@ -230,7 +234,7 @@ export async function syncArtistsFromSpotify(userId: string): Promise<{
       .flatMap((i) => i.track.artists)
       .find((a) => a.id === spotifyId);
     if (matchingArtist) {
-      addArtist(spotifyId, matchingArtist.name, null, count * 2);
+      addArtist(spotifyId, matchingArtist.name, null, [], count * 2);
     }
   }
 
@@ -261,10 +265,13 @@ export async function syncArtistsFromSpotify(userId: string): Promise<{
 
     if (existingArtist) {
       artistId = existingArtist.id;
-      if (artist.imageUrl) {
+      const updateData: Record<string, unknown> = {};
+      if (artist.imageUrl) updateData.image_url = artist.imageUrl;
+      if (artist.genres.length > 0) updateData.genres = artist.genres;
+      if (Object.keys(updateData).length > 0) {
         await supabase
           .from("artists")
-          .update({ image_url: artist.imageUrl })
+          .update(updateData)
           .eq("id", artistId);
       }
     } else {
@@ -274,6 +281,7 @@ export async function syncArtistsFromSpotify(userId: string): Promise<{
           name: artist.name,
           spotify_id: artist.spotifyId,
           image_url: artist.imageUrl,
+          genres: artist.genres,
         })
         .select("id")
         .single();

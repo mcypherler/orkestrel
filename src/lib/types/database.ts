@@ -48,6 +48,7 @@ type ArtistsInsert = {
   name: string;
   spotify_id?: string | null;
   image_url?: string | null;
+  genres?: string[];
 };
 
 type UserArtistsInsert = {
@@ -77,6 +78,8 @@ type EventsInsert = {
   image_url?: string | null;
   source_payload?: Record<string, unknown> | null;
   observed_at?: string;
+  genres?: string[];
+  lineup?: string[];
 };
 
 type EventOffersInsert = {
@@ -102,6 +105,8 @@ type AlertCandidatesInsert = {
   reasons?: string[];
   warnings?: string[];
   status?: AlertStatus;
+  match_lane?: string;
+  match_evidence?: Record<string, unknown>;
 };
 
 type MessageDeliveriesInsert = {
@@ -179,6 +184,7 @@ export interface Database {
           name: string;
           spotify_id: string | null;
           image_url: string | null;
+          genres: string[];
           created_at: string;
         };
         Insert: ArtistsInsert;
@@ -217,6 +223,8 @@ export interface Database {
           image_url: string | null;
           source_payload: Record<string, unknown> | null;
           observed_at: string;
+          genres: string[];
+          lineup: string[];
           created_at: string;
           updated_at: string;
         };
@@ -251,6 +259,8 @@ export interface Database {
           reasons: string[];
           warnings: string[];
           status: AlertStatus;
+          match_lane: string;
+          match_evidence: Record<string, unknown> | null;
           created_at: string;
           updated_at: string;
         };

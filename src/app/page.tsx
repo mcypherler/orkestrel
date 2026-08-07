@@ -18,6 +18,11 @@ interface FeaturedMatch {
   warnings: string[];
   status?: string;
   created_at?: string;
+  match_lane?: string | null;
+  match_evidence?: {
+    supportingArtists?: { name: string; similarity: number }[];
+    explanation?: string;
+  } | null;
   events: {
     title: string;
     artist_name: string | null;
@@ -376,6 +381,11 @@ function BigStoryCard({ match, totalMatches, headline }: { match: FeaturedMatch;
               {urgency}
             </span>
           )}
+          {match.match_lane === "semantic" && (
+            <span className="text-xs font-mono bg-gold/20 text-gold px-2 py-0.5 rounded-full">
+              Taste match
+            </span>
+          )}
           {isTribute && (
             <span className="text-xs font-mono bg-white/10 text-white/70 px-2 py-0.5 rounded-full">
               Tribute
@@ -466,6 +476,9 @@ function CompactMatchCard({ match }: { match: FeaturedMatch }) {
             {urgency && (
               <span className="text-xs font-bold text-coral">{urgency}</span>
             )}
+            {match.match_lane === "semantic" && (
+              <span className="text-xs font-mono text-gold">Taste match</span>
+            )}
             {isTribute && (
               <span className="text-xs font-mono text-gold">Tribute</span>
             )}
@@ -484,7 +497,9 @@ function CompactMatchCard({ match }: { match: FeaturedMatch }) {
         {match.reasons.slice(0, 2).map((r, i) => (
           <span
             key={i}
-            className="text-xs bg-accent/10 text-accent px-1.5 py-0.5 rounded"
+            className={`text-xs px-1.5 py-0.5 rounded ${
+              match.match_lane === "semantic" ? "bg-gold/10 text-gold" : "bg-accent/10 text-accent"
+            }`}
           >
             {r}
           </span>

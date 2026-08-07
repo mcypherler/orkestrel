@@ -18,6 +18,13 @@ interface AlertCandidate {
   reasons: string[];
   warnings: string[];
   status: string;
+  match_lane: string | null;
+  match_evidence: {
+    supportingArtists?: { name: string; similarity: number }[];
+    explanation?: string;
+    reasonCodes?: string[];
+    semanticFit?: number;
+  } | null;
   created_at: string;
   events: {
     id: string;
@@ -129,8 +136,9 @@ export default function AlertsPage() {
     const res = await fetch("/api/alerts/match", { method: "POST" });
     const data = await res.json();
     const aiNote = data.aiMatched > 0 ? ` (${data.aiMatched} via AI)` : "";
+    const semanticNote = data.semanticMatched > 0 ? ` (${data.semanticMatched} taste matches)` : "";
     setStatus(
-      `Matched ${data.matched}${aiNote}, rejected ${data.rejected}, watching ${data.watching}`
+      `Matched ${data.matched}${aiNote}${semanticNote}, rejected ${data.rejected}, watching ${data.watching}`
     );
     await fetchAlerts();
     setMatching(false);
@@ -363,6 +371,11 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
         >
           {statusLabels[alert.status] || alert.status}
         </span>
+        {alert.match_lane === "semantic" && (
+          <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-gold/20 text-gold">
+            Taste match
+          </span>
+        )}
         {isTribute && (
           <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-gold/20 text-gold">
             Tribute
@@ -396,12 +409,21 @@ function AlertCard({ alert }: { alert: AlertCandidate }) {
           {alert.reasons.map((r, i) => (
             <span
               key={i}
-              className="text-xs bg-accent/10 text-accent px-1.5 py-0.5 rounded"
+              className={`text-xs px-1.5 py-0.5 rounded ${
+                alert.match_lane === "semantic" ? "bg-gold/10 text-gold" : "bg-accent/10 text-accent"
+              }`}
             >
               {r}
             </span>
           ))}
         </div>
+      )}
+
+      {/* Semantic match evidence */}
+      {alert.match_lane === "semantic" && alert.match_evidence?.explanation && (
+        <p className="text-xs text-muted italic">
+          {alert.match_evidence.explanation}
+        </p>
       )}
 
       {/* Row 6: Warnings */}
